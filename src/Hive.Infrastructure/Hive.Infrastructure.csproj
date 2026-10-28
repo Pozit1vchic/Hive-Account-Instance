@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../Hive.Core/Hive.Core.csproj" /></ItemGroup><ItemGroup>
+  <PackageReference Include="System.Management" Version="10.0.0" />
+  <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+</ItemGroup></Project>
