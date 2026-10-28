@@ -5,8 +5,8 @@ The reference image informed surface hierarchy and depth rather than a direct th
 - Canvas: #F4F5F8. Raised surfaces: #FFFFFF. Text: #29313F. Muted text: #828896. Lines: #E7E9F0. Honey accent: #DFA740.
 - Segoe UI Variable Text/Segoe UI keeps account data legible; the title is 22px, controls 12px, quiet annotations 10–11px.
 - Primary actions use a restrained honey gradient and colored ambient shadow. Neutral actions stay flat; cards receive a single soft elevation shadow. Honeycomb lines live behind the upper toolbar rather than below table text.
-- The primary workspace is a three-column account table. Details and Session share the narrower inspector, so saving does not require scrolling on the default window size.
-- Button hover lifts 1.5px over 140ms; pressing scales to 97% over 80ms; window content enters over 200ms. Motion is disabled by the application switch or Windows reduced-animation setting.
+- The primary workspace is a full-width three-column account table. Details and session tools open only through Edit or a row double-click. A compact Place ID / Job ID launcher sits below the table; no permanent credential inspector consumes the workspace.
+- Button hover lifts 2.5px over 140ms with an accent glow; pressing scales to 97% over 80ms. The main workspace enters over 320ms, while dialogs and settings pages reveal over 280ms. Motion is disabled by the application switch or Windows reduced-animation setting.
 - SVG source assets are embedded locally and rendered using their vector path geometry. There are no emoji icons or remote image dependencies.
 - Settings has Appearance, Privacy, Sessions and Browser categories, saved immediately. Light/Dusk and Honey/Iris/Ocean use the same hierarchy.
 
