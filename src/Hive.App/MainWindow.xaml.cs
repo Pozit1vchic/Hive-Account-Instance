@@ -83,7 +83,7 @@ public partial class MainWindow : Window
             item.Click += action;
             menu.Items.Add(item);
         }
-        Item("Manual login", "browser", (_, _) => model.AddBrowserCommand.Execute(null));
+        Item("Manual login", "browser", (_, _) => OpenAddDialog("Manual"));
         Item("User:Pass", "key", (_, _) => OpenAddDialog("Credentials"));
         Item("Cookie(s)", "shield", (_, _) => OpenAddDialog("Cookies"));
         menu.Items.Add(new Separator());
@@ -91,21 +91,34 @@ public partial class MainWindow : Window
         ((Button)sender).ContextMenu = menu;
         menu.IsOpen = true;
     }
-    private async void OpenAddDialog(string mode)
+    private void OpenAddDialog(string mode)
     {
         var dialog = new AddAccountsWindow(mode, model.EffectiveMotion) { Owner = this };
-        if (dialog.ShowDialog() != true)
-            return;
-        try
+        dialog.SubmitAsync = async () =>
         {
-            if (mode == "Credentials")
+            if (mode == "Manual")
+                await ((AsyncCommand)model.AddBrowserCommand).ExecuteAsync();
+            else if (mode == "Credentials")
                 await model.AddCredentialsAsync(dialog.Credentials);
             else if (mode == "Cookies")
                 await model.AddCookiesAsync(dialog.Cookies);
             else
                 await model.AddCustomAsync(dialog.StartUrl!, dialog.Script);
+            dialog.SetProgress(model.Status);
+            return model.LastAddedCount > 0;
+        };
+        dialog.CancelOperation = () => model.CancelLoginCommand.Execute(null);
+        void UpdateProgress(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(model.Status))
+                dialog.SetProgress(model.Status);
         }
-        finally { dialog.ForgetSecrets(); }
+        model.PropertyChanged += UpdateProgress;
+        try
+        {
+            dialog.ShowDialog();
+        }
+        finally { model.PropertyChanged -= UpdateProgress; dialog.ForgetSecrets(); }
     }
     private void EditSelected(object sender, RoutedEventArgs e)
     {

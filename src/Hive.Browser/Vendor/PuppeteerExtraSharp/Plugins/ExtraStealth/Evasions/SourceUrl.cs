@@ -1,0 +1,34 @@
+#nullable disable
+using System.Reflection;
+using System.Threading.Tasks;
+using PuppeteerSharp;
+
+namespace PuppeteerExtraSharp.Plugins.ExtraStealth.Evasions;
+
+public class SourceUrl() : PuppeteerExtraPlugin("SourceUrl")
+{
+    protected internal override Task OnPageCreatedAsync(IPage page)
+    {
+        var mainWordProperty =
+            page.MainFrame.GetType().GetProperty("MainWorld", BindingFlags.NonPublic
+                                                              | BindingFlags.Public | BindingFlags.Instance);
+        var mainWordGetters = mainWordProperty.GetGetMethod(true);
+
+        page.Load += async (_, _) =>
+        {
+            var mainWord = mainWordGetters.Invoke(page.MainFrame, null);
+            var contextField = mainWord.GetType()
+                .GetField("_contextResolveTaskWrapper", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (contextField is not null)
+            {
+                var context = (TaskCompletionSource<PuppeteerSharp.ExecutionContext>)contextField.GetValue(mainWord);
+                var execution = await context.Task;
+                var suffixField = execution.GetType()
+                    .GetField("EvaluationScriptSuffix", BindingFlags.NonPublic | BindingFlags.Instance);
+                suffixField?.SetValue(execution, "//# sourceURL=''");
+            }
+        };
+
+        return Task.CompletedTask;
+    }
+}

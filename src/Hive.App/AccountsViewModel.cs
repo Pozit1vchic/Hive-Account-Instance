@@ -94,6 +94,7 @@ public sealed class AccountsViewModel : ObservableObject
     {
         if (IsBusy)
             return;
+        LastAddedCount = 0;
         IsBusy = true;
         try
         {
@@ -538,6 +539,10 @@ public sealed class AccountsViewModel : ObservableObject
         Status = result.Message;
         Changed(nameof(SessionLabel));
     }
+    public int LastAddedCount
+    {
+        get; private set;
+    }
     public Task AddCredentialsAsync(IReadOnlyList<LoginCredential> entries) => RunAsync(async () =>
     {
         foreach (var entry in entries)
@@ -569,6 +574,7 @@ public sealed class AccountsViewModel : ObservableObject
                 catch (System.Net.Http.HttpRequestException) { rejected++; }
                 catch (System.Net.CookieException) { rejected++; }
             }
+            LastAddedCount = processed;
             Search = "";
             FilterMode = "All";
             await LoadAsync();
@@ -590,7 +596,7 @@ public sealed class AccountsViewModel : ObservableObject
         var ct = loginCancellation.Token;
         try
         {
-            Status = expected is null ? "Opening a private sign-in window. Complete Roblox sign-in to add your account." : $"Sign in as {expected.Username} in the browser. Use Cancel to stop.";
+            Status = expected is null ? "Preparing the browser (first launch may download Chrome). Complete Roblox sign-in in the window that opens." : $"Sign in as {expected.Username} in the browser. Use Cancel to stop.";
             var profileId = expected?.Id ?? Guid.NewGuid().ToString("N");
             var root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "BrowserProfiles", profileId);
             await using var session = await browser.OpenAsync(new(profileId, "Sign in", root), ct);
@@ -617,6 +623,7 @@ public sealed class AccountsViewModel : ObservableObject
                     FilterMode = "All";
                     await LoadAsync();
                     Selected = Accounts.FirstOrDefault(a => a.Id == added.Id);
+                    LastAddedCount++;
                     Status = $"Added {added.Username}. Session encrypted locally.";
                     return;
                 }

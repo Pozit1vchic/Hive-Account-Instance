@@ -41,7 +41,7 @@ internal static class VisualChecks
         window.Height = 700;
         if (window.FindName("PasswordInput") is not null)
             throw new Exception("Permanent credential inspector returned");
-        foreach (var mode in new[] { "Credentials", "Cookies", "Custom" })
+        foreach (var mode in new[] { "Manual", "Credentials", "Cookies", "Custom" })
         {
             var add = new AddAccountsWindow(mode, false) { Owner = window };
             add.Show();
@@ -49,6 +49,30 @@ internal static class VisualChecks
             add.Close();
             add.ForgetSecrets();
         }
+        var retry = new AddAccountsWindow("Cookies", false) { Owner = window };
+        var submitted = 0;
+        var completion = new TaskCompletionSource<bool>();
+        retry.SubmitAsync = () => { submitted++; return completion.Task; };
+        retry.Show();
+        ((TextBox)retry.FindName("CookiesInput")).Text = "test-local-cookie";
+        var continueButton = (Button)retry.FindName("ContinueButton");
+        continueButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (submitted != 1 || continueButton.IsEnabled || !retry.IsVisible)
+            throw new Exception("Continue did not start the operation or wait for completion");
+        completion.SetResult(false);
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        if (!retry.IsVisible || !continueButton.IsEnabled)
+            throw new Exception("Failed addition closed the dialog or blocked retry");
+        var cancelled = false;
+        retry.CancelOperation = () => cancelled = true;
+        completion = new TaskCompletionSource<bool>();
+        continueButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)retry.FindName("CancelButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (!cancelled || !retry.IsVisible)
+            throw new Exception("In-progress cancellation did not reach onboarding");
+        completion.SetResult(false);
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        retry.Close();
         var details = new AccountDetailsWindow(vm) { Owner = window };
         details.Show();
         Capture(details, "artifacts/account-details.png");

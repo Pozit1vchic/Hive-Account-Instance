@@ -1,6 +1,6 @@
 using Hive.Core;
 using PuppeteerSharp;
-using PuppeteerExtraSharp;
+using PuppeteerExtraSharp.Plugins;
 using PuppeteerExtraSharp.Plugins.ExtraStealth;
 namespace Hive.Browser;
 
@@ -12,17 +12,21 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
         if (!File.Exists(executablePath))
             throw new FileNotFoundException("Configure Browser:ExecutablePath before opening a browser.", executablePath);
         Directory.CreateDirectory(profile.DirectoryPath);
-        var extra = new PuppeteerExtra().Use(new StealthPlugin());
-        var browser = await extra.LaunchAsync(new LaunchOptions { Headless = false, ExecutablePath = executablePath, UserDataDir = profile.DirectoryPath, DefaultViewport = null, Timeout = 15000 });
+        var stealth = new StealthPlugin();
+        var plugins = new[] { stealth }.Cast<PuppeteerExtraPlugin>().Concat(stealth.GetDependencies()).OrderBy(p => p.Requirements.Contains(PluginRequirements.RunLast)).ToArray();
+        var options = new LaunchOptions { Headless = false, ExecutablePath = executablePath, UserDataDir = profile.DirectoryPath, DefaultViewport = null, Timeout = 15000 };
+        foreach (var plugin in plugins)
+            await plugin.BeforeLaunchAsync(options);
+        var browser = await Puppeteer.LaunchAsync(options);
         try
         {
             var context = await browser.CreateBrowserContextAsync();
             cancellationToken.ThrowIfCancellationRequested();
-            return new Session(browser, context);
+            return new Session(browser, context, plugins);
         }
         catch { await browser.CloseAsync(); browser.Dispose(); throw; }
     }
-    private sealed class Session(IBrowser browser, IBrowserContext context) : IBrowserSession
+    private sealed class Session(IBrowser browser, IBrowserContext context, IReadOnlyList<PuppeteerExtraPlugin> plugins) : IBrowserSession
     {
         private IPage? currentPage;
         private int disposed;
@@ -38,7 +42,10 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
             cancellationToken.ThrowIfCancellationRequested();
             var page = await context.NewPageAsync();
             currentPage = page;
-            await page.GoToAsync(uri.AbsoluteUri).WaitAsync(cancellationToken);
+            // Apply and await Stealth on the managed page before its first navigation.
+            foreach (var plugin in plugins)
+                await plugin.OnPageCreatedAsync(page).WaitAsync(cancellationToken);
+            await page.GoToAsync(uri.AbsoluteUri, new NavigationOptions { WaitUntil = [WaitUntilNavigation.DOMContentLoaded], Timeout = 60000 }).WaitAsync(cancellationToken);
         }
         public async Task FillLoginAsync(string username, string password, CancellationToken ct = default)
         {

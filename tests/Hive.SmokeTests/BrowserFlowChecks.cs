@@ -39,19 +39,53 @@ internal static class BrowserFlowChecks
         if (provider.Session.IsOpen)
             throw new Exception("Application shutdown left a browser open");
         await accounts.DeleteAsync(account.Id);
+        provider = new BrowserFixture { CompleteSignIn = true };
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), provider, preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
+        await vm.AddCredentialsAsync([new("BrowserControl", "local-test-password")]).WaitAsync(TimeSpan.FromSeconds(8));
+        var savedAccount = (await accounts.GetAllAsync()).Single();
+        if (vm.LastAddedCount != 1 || provider.Session.FilledUsername != "BrowserControl" || await credentials.ReadPasswordAsync(savedAccount.Id) != "local-test-password")
+            throw new Exception("User:Pass confirmation did not reach browser login and encrypted persistence");
+        await vm.ShutdownAsync();
+        await accounts.DeleteAsync(savedAccount.Id);
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
+        await vm.AddCredentialsAsync([new("BrowserControl", "local-test-password")]);
+        if (vm.IsBusy || vm.LastAddedCount != 0 || !vm.Status.Contains("Settings > Browser") || (await accounts.GetAllAsync()).Count != 0)
+            throw new Exception("Unavailable browser was not reported without adding a phantom account");
+        await vm.ShutdownAsync();
         Console.WriteLine("PASS: browser onboarding cancellation, saved-session restoration, nonblocking managed browser opening and shutdown cleanup (provider fixture).");
     }
     private sealed class IdentityHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":5001,\"name\":\"BrowserControl\"}") });
     }
+    private sealed class MissingBrowser : IBrowserProvider
+    {
+        public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default) => throw new FileNotFoundException();
+    }
     private sealed class BrowserFixture : IBrowserProvider
     {
+        public bool CompleteSignIn
+        {
+            get => Session.CompleteSignIn; init => Session.CompleteSignIn = value;
+        }
         public SessionFixture Session { get; } = new();
         public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default) => Task.FromResult<IBrowserSession>(Session);
     }
     private sealed class SessionFixture : IBrowserSession
     {
+        public bool CompleteSignIn
+        {
+            get; set;
+        }
+        public string? FilledUsername
+        {
+            get; private set;
+        }
+        public Task FillLoginAsync(string username, string password, CancellationToken ct = default)
+        {
+            FilledUsername = username;
+            return Task.CompletedTask;
+        }
         public bool IsOpen { get; private set; } = true;
         public TaskCompletionSource Navigated { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public IReadOnlyList<SessionCookie> Restored { get; private set; } = [];
@@ -70,7 +104,7 @@ internal static class BrowserFlowChecks
             Restored = cookies;
             return Task.CompletedTask;
         }
-        public Task<IReadOnlyList<SessionCookie>> ReadCookiesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<SessionCookie>>([]);
+        public Task<IReadOnlyList<SessionCookie>> ReadCookiesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<SessionCookie>>(CompleteSignIn ? [new(".ROBLOSECURITY", "test-sign-in-cookie", ".roblox.com", "/", null, true, true)] : []);
         public ValueTask DisposeAsync()
         {
             IsOpen = false;

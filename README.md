@@ -37,7 +37,11 @@ Install the PuppeteerSharp-pinned Chrome for Testing build with:
 dotnet run --project tools/Hive.BrowserSetup -c Release
 ```
 
-The setup uses PuppeteerSharp BrowserFetcher and checks a real launch through StealthPlugin, private-context navigation and cookie roundtrip before selecting the executable automatically. Chrome/Edge can also be selected in Settings > Browser. Browser sign-in is a separate managed Chromium window, not an embedded WPF web view. Private contexts keep website session cookies separate from the persistent browser metadata directory. On this workstation, the downloaded pinned Chrome 155.0.8059.84 fails at Windows process creation with SideBySide error 14001, on both x64 and x86. Therefore the executable has not been marked verified or selected automatically. Resolve that Windows loader failure or select a working installed Chrome/Edge before browser sign-in. Real Roblox authentication and live game launches still need an account-backed smoke test.
+The setup uses PuppeteerSharp BrowserFetcher and checks a real launch through StealthPlugin, private-context navigation and cookie roundtrip before selecting the executable automatically. Chrome/Edge can also be selected in Settings > Browser. Browser sign-in is a separate managed Chromium window, not an embedded WPF web view. Private contexts keep website session cookies separate from the persistent browser metadata directory. Hive automatically downloads the PuppeteerSharp-pinned browser when no configured/managed/installed browser is available. Portable builds keep it in `Browser/` beside the executable when writable, with local-app-data fallback. Setup also accepts `--path <folder>` and `--roblox` to verify the real sign-in page. A managed manifest is written only after a successful launch.
+
+The published PuppeteerExtraSharp 3.1.1 binary is incompatible with PuppeteerSharp 25's API. Hive compiles the MIT-licensed Stealth subset from source against its current PuppeteerSharp and awaits page initialization before navigation; see the vendor README for provenance and changes. The browser launch, isolated cookies and real Roblox sign-in-page navigation are verified separately from account authentication. Real account sign-in still requires the user's Roblox verification.
+
+Account-entry dialogs stay open during sign-in, show progress/errors and support cancellation and retry. They close only after a verified account has been saved; no phantom account is created when browser startup fails.
 
 ## Storage and trust
 
@@ -49,7 +53,7 @@ Data lives in `%LOCALAPPDATA%/Hive/`: `hive.db`, `preferences.json`, `BrowserPro
 - `Hive.Core`: domain records and storage/provider contracts.
 - `Hive.Storage`: SQLite + Dapper repositories, migrations, encrypted credentials/sessions, transactional RAM import.
 - `Hive.Infrastructure`: DPAPI, launch queue, Windows protocol dispatch and account/process tracking.
-- `Hive.Browser`: PuppeteerSharp 25.15.0 with PuppeteerExtraSharp 3.1.1 StealthPlugin and isolated contexts.
+- `Hive.Browser`: PuppeteerSharp 25.15.0 with a source-compatible MIT StealthPlugin subset and isolated contexts.
 - `Hive.Roblox`: account identity onboarding, session validation/renewal and authenticated launch tickets.
 
 See [RAM behavior analysis](docs/RAM-behavior.md) for the old manager's workflow map and the implementation boundary. No RAM implementation source is compiled into Hive.
