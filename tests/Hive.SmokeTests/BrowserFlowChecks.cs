@@ -47,6 +47,15 @@ internal static class BrowserFlowChecks
             throw new Exception("User:Pass confirmation did not reach browser login and encrypted persistence");
         await vm.ShutdownAsync();
         await accounts.DeleteAsync(savedAccount.Id);
+        var parallel = new ParallelBrowsers();
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), parallel, preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
+        var batch = vm.AddCredentialsAsync([new("first", "test"), new("second", "test"), new("third", "test")]);
+        await parallel.TwoOpened.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        if (parallel.Sessions.Count != 2) throw new Exception("More than two browser sign-ins opened concurrently");
+        await ((AsyncCommand)vm.CancelLoginCommand).ExecuteAsync();
+        await batch.WaitAsync(TimeSpan.FromSeconds(3));
+        if (parallel.Sessions.Any(s => s.IsOpen) || parallel.Sessions.Any(s => s.ConsentCalls == 0)) throw new Exception("Parallel cancellation or cookie consent handling failed");
+        await vm.ShutdownAsync();
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
         await vm.AddCredentialsAsync([new("BrowserControl", "local-test-password")]);
         if (vm.IsBusy || vm.LastAddedCount != 0 || !vm.Status.Contains("managed browser") || (await accounts.GetAllAsync()).Count != 0)
@@ -71,8 +80,20 @@ internal static class BrowserFlowChecks
         public SessionFixture Session { get; } = new();
         public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default) => Task.FromResult<IBrowserSession>(Session);
     }
+    private sealed class ParallelBrowsers : IBrowserProvider
+    {
+        public List<SessionFixture> Sessions { get; } = [];
+        public TaskCompletionSource TwoOpened { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default)
+        {
+            var session = new SessionFixture(); Sessions.Add(session); if (Sessions.Count == 2) TwoOpened.TrySetResult();
+            return Task.FromResult<IBrowserSession>(session);
+        }
+    }
     private sealed class SessionFixture : IBrowserSession
     {
+        public int ConsentCalls { get; private set; }
+        public Task AcceptCookieConsentAsync(CancellationToken ct = default) { ConsentCalls++; return Task.CompletedTask; }
         public bool CompleteSignIn
         {
             get; set;

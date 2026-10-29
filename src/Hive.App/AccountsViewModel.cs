@@ -408,6 +408,7 @@ public sealed class AccountsViewModel : ObservableObject
     private LaunchRequest BuildLaunchRequest(string id) => LaunchTarget.Parse(id, LaunchMode, LaunchTargetId, LaunchArgument);
     public void LoadSavedPlace(SavedPlace saved) { LaunchMode = saved.Kind; LaunchTargetId = saved.PlaceId; LaunchArgument = saved.Kind == LaunchKind.PrivateServer ? Hive.Infrastructure.ProtectedText.Read(saved.ProtectedArgument) : saved.JobId; }
     public int MaxParallelLaunches { get => preferences.MaxParallelLaunches; set { preferences.MaxParallelLaunches = Math.Clamp(value, 1, 4); SavePreferences(); Changed(); } }
+    public int ParallelSignIns { get => Math.Clamp(preferences.ParallelSignIns, 1, 4); set { preferences.ParallelSignIns = Math.Clamp(value, 1, 4); SavePreferences(); Changed(); } }
     public double LaunchDelaySeconds { get => preferences.LaunchDelaySeconds; set { preferences.LaunchDelaySeconds = Math.Clamp(value, 0, 30); SavePreferences(); Changed(); } }
     public bool AutoRejoin { get => preferences.AutoRejoin; set { preferences.AutoRejoin = value; if (!value) foreach (var item in Launches.Where(x => x.State == InstanceState.Backoff)) instances?.Cancel(item.AccountId); SavePreferences(); Changed(); } }
     public int MaxRejoinAttempts { get => preferences.MaxRejoinAttempts; set { preferences.MaxRejoinAttempts = Math.Clamp(value, 1, 10); SavePreferences(); Changed(); } }
@@ -427,6 +428,8 @@ public sealed class AccountsViewModel : ObservableObject
     public string AccountName(string id) => all.FirstOrDefault(a => a.Id == id)?.Username ?? "Removed account";
     public void CancelLaunch(string id) => instances?.Cancel(id);
     public int LaunchCount => Launches.Count(x => x.State is InstanceState.Queued or InstanceState.Starting or InstanceState.Backoff);
+    public int GameWindowWidth { get => preferences.GameWindowWidth; set { preferences.GameWindowWidth = Math.Clamp(value, 320, 7680); SavePreferences(); Changed(); } }
+    public int GameWindowHeight { get => preferences.GameWindowHeight; set { preferences.GameWindowHeight = Math.Clamp(value, 240, 4320); SavePreferences(); Changed(); } }
     public bool CompactGameWindows
     {
         get => preferences.CompactGameWindows;
@@ -638,6 +641,7 @@ public sealed class AccountsViewModel : ObservableObject
         Changed(nameof(LaunchStatus));
     });
     public int TotalCount => all.Count;
+    public IReadOnlyList<ControlAccount> ControlAccounts() => all.Select(row => new ControlAccount(row.Id, row.Username, row.ProcessId, row.IsRunning, row.IsInvalid)).ToArray();
     public int RunningCount => all.Count(a => a.IsRunning);
     public int AttentionCount => all.Count(a => a.IsInvalid);
     private void Filter()
@@ -753,13 +757,27 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get; private set;
     }
+    private readonly SemaphoreSlim onboardingSaveGate = new(1, 1);
+    private bool optionalSaveIssue;
     public Task AddCredentialsAsync(IReadOnlyList<LoginCredential> entries) => RunAsync(async () =>
     {
-        foreach (var entry in entries)
+        optionalSaveIssue = false;
+        using var batch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        loginCancellation = batch;
+        var concurrency = ParallelSignIns;
+        using var limit = new SemaphoreSlim(concurrency, concurrency);
+        try
         {
-            lifetime.Token.ThrowIfCancellationRequested();
-            await AuthenticateAsync(null, entry);
+            await Task.WhenAll(entries.Select(async entry =>
+            {
+                await limit.WaitAsync(batch.Token);
+                try { await AuthenticateAsync(null, entry, batchToken: batch.Token); }
+                catch { await batch.CancelAsync(); throw; }
+                finally { limit.Release(); }
+            }));
+            if (entries.Count > 1) Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (optionalSaveIssue ? " Some passwords or profiles could not be saved." : "");
         }
+        finally { loginCancellation = null; }
     });
     public Task AddCookiesAsync(IReadOnlyList<string> tokens) => RunAsync(async () =>
     {
@@ -801,16 +819,17 @@ public sealed class AccountsViewModel : ObservableObject
     });
     public Task AddCustomAsync(Uri url, string script) => RunAsync(() => AuthenticateAsync(null, startUrl: url, script: script));
     private Task SignInAsync() => AuthenticateAsync(Selected);
-    private async Task AuthenticateAsync(AccountRow? expected, LoginCredential? login = null, Uri? startUrl = null, string? script = null)
+    private async Task AuthenticateAsync(AccountRow? expected, LoginCredential? login = null, Uri? startUrl = null, string? script = null, CancellationToken? batchToken = null)
     {
         if (onboarding is null)
         {
             Status = "Browser onboarding is unavailable.";
             return;
         }
-        loginCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        loginCancellation.CancelAfter(TimeSpan.FromMinutes(5));
-        var ct = loginCancellation.Token;
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(batchToken ?? lifetime.Token);
+        if (batchToken is null) loginCancellation = operation;
+        operation.CancelAfter(TimeSpan.FromMinutes(5));
+        var ct = operation.Token;
         try
         {
             Status = expected is null ? "Preparing the browser (first launch may download Chrome). Complete Roblox sign-in in the window that opens." : $"Sign in as {expected.Username} in the browser. Use Cancel to stop.";
@@ -819,6 +838,7 @@ public sealed class AccountsViewModel : ObservableObject
             var root = knownProfile?.DirectoryPath ?? System.IO.Path.Combine(ProfileRoot, profileId);
             await using var session = await browser.OpenAsync(new(profileId, "Sign in", root), ct);
             await session.NavigateAsync(startUrl ?? new Uri("https://www.roblox.com/login"), ct);
+            await session.AcceptCookieConsentAsync(ct);
             if (login is not null)
             {
                 await session.FillLoginAsync(login.Username, login.Password, ct);
@@ -831,6 +851,7 @@ public sealed class AccountsViewModel : ObservableObject
             while (session.IsOpen)
             {
                 await Task.Delay(TimeSpan.FromSeconds(3), ct);
+                await session.AcceptCookieConsentAsync(ct);
                 var cookies = await session.ReadCookiesAsync(ct);
                 var currentToken = cookies.FirstOrDefault(c => c.Name == ".ROBLOSECURITY")?.Value;
                 if (currentToken is null || (currentToken == observedToken && DateTimeOffset.UtcNow < nextCheck))
@@ -840,6 +861,9 @@ public sealed class AccountsViewModel : ObservableObject
                 var saved = new AccountSession(cookies, DateTimeOffset.UtcNow);
                 if (expected is null)
                 {
+                    await onboardingSaveGate.WaitAsync(ct);
+                    try
+                    {
                     Account? added;
                     try
                     {
@@ -850,22 +874,30 @@ public sealed class AccountsViewModel : ObservableObject
                     if (added is null)
                         continue;
                     LastAddedCount++;
-                    if (profileRepository is not null && !(await profileRepository.GetAllAsync(ct)).Any(p => p.AccountId == added.Id)) await profileRepository.SaveAsync(new(profileId, added.Username, root, added.Id, DateTimeOffset.UtcNow), ct);
+                    var optionalSaveFailed = false;
+                    try
+                    {
+                        if (profileRepository is not null && !(await profileRepository.GetAllAsync(ct)).Any(p => p.AccountId == added.Id)) await profileRepository.SaveAsync(new(profileId, added.Username, root, added.Id, DateTimeOffset.UtcNow), ct);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { optionalSaveFailed = true; logger.LogWarning("Optional browser profile save failed ({ErrorType})", ex.GetType().Name); }
                     if (login is not null)
                     {
                         try
                         {
                             await credentials.SavePasswordAsync(added.Id, login.Password, ct);
                         }
-                        catch (Exception ex) when (ex is System.IO.IOException or System.Security.Cryptography.CryptographicException) { logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
+                        catch (Exception ex) when (ex is not OperationCanceledException) { optionalSaveFailed = true; logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
                     }
                     SelectedGroup = null;
                     Search = "";
                     FilterMode = "All";
                     await LoadAsync();
                     Selected = Accounts.FirstOrDefault(a => a.Id == added.Id);
-                    Status = $"Added {added.Username}. Session encrypted locally.";
+                    optionalSaveIssue |= optionalSaveFailed;
+                    Status = optionalSaveFailed ? $"Added {added.Username}, but profile or password could not be saved." : $"Added {added.Username}. Session encrypted locally.";
                     return;
+                    }
+                    finally { onboardingSaveGate.Release(); }
                 }
                 var result = await sessions.ImportAsync(expected.Data, saved, ct);
                 if (result.Confirmed && result.State == SessionState.Valid)
@@ -880,7 +912,7 @@ public sealed class AccountsViewModel : ObservableObject
             }
             Status = "Sign-in window closed.";
         }
-        finally { loginCancellation.Dispose(); loginCancellation = null; }
+        finally { if (batchToken is null) loginCancellation = null; }
     }
     public ObservableCollection<BrowserProfile> BrowserProfiles { get; } = [];
     private async Task ReloadProfilesAsync()
@@ -1034,6 +1066,7 @@ public sealed class AccountsViewModel : ObservableObject
     }
 
 }
+public sealed record ControlAccount(string Id, string Username, int? ProcessId, bool Running, bool NeedsSignIn);
 public sealed class AsyncCommand(Func<Task> execute) : ICommand
 {
     private bool running; public bool CanExecute(object? parameter) => !running;

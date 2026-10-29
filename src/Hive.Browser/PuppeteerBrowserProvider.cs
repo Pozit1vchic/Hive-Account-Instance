@@ -88,6 +88,19 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
             await page.TypeAsync("#login-password", password).WaitAsync(ct);
             // Leave the final submit and any verification to the person using the browser.
         }
+        public async Task AcceptCookieConsentAsync(CancellationToken ct = default)
+        {
+            var page = currentPage;
+            if (page is null || page.IsClosed || !Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com")) return;
+            try
+            {
+                await page.EvaluateExpressionAsync(@"(() => {
+                    const button = document.querySelector('#onetrust-accept-btn-handler');
+                    if (button && button.getClientRects().length && !button.disabled) button.click();
+                })()").WaitAsync(ct);
+            }
+            catch (PuppeteerException) when (!ct.IsCancellationRequested) { /* Navigation can replace the page while the banner is checked. */ }
+        }
         public async Task ExecuteScriptAsync(string script, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(script))

@@ -5,7 +5,14 @@ namespace Hive.App;
 
 public sealed class ConfiguredBrowserProvider(AppPreferences preferences, string configuredPath) : IBrowserProvider
 {
+    private readonly SemaphoreSlim browserSetup = new(1, 1);
     public async Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default)
+    {
+        await browserSetup.WaitAsync(cancellationToken);
+        try { return await OpenCoreAsync(profile, cancellationToken); }
+        finally { browserSetup.Release(); }
+    }
+    private async Task<IBrowserSession> OpenCoreAsync(BrowserProfile profile, CancellationToken cancellationToken)
     {
         var managed = "";
         var bundledRoot = Path.Combine(AppContext.BaseDirectory, "Browser");

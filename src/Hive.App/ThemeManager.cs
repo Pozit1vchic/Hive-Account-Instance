@@ -33,6 +33,9 @@ public static class ThemeManager
         Set("InkBrush", dark ? "#F0EDF8" : "#29313F");
         Set("MutedBrush", dark ? "#A8B4C8" : "#657186");
         Set("LineBrush", dark ? "#354258" : "#E1E6EF");
+        resources["GlassBrush"] = new LinearGradientBrush(
+            (Color)ColorConverter.ConvertFromString(dark ? "#DE36425B" : "#E8FFFFFF"),
+            (Color)ColorConverter.ConvertFromString(dark ? "#C2222939" : "#CDEAF0F9"), 105);
         Set("SelectedBrush", preferences.Accent switch
         {
             "Iris" => dark ? "#3A3554" : "#EFEAFB",

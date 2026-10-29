@@ -16,6 +16,7 @@ public class ToolWindow : Window
         frame.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush"); frame.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
         var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) }); grid.RowDefinitions.Add(new RowDefinition()); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var header = new DockPanel { Margin = new Thickness(20,0,8,0) };
+        header.SetResourceReference(Panel.BackgroundProperty, "GlassBrush");
         var close = new Button { Style = (Style)Application.Current.FindResource("IconButton"), Content = new SvgIcon { NameKey = "close", Width = 18, Height = 18 } };
         close.Click += (_, _) => Close(); WindowChrome.SetIsHitTestVisibleInChrome(close, true); DockPanel.SetDock(close, Dock.Right); header.Children.Add(close);
         header.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });

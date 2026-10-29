@@ -19,6 +19,7 @@ public sealed class AppPreferences : Hive.Core.IGameWindowPreferences, Hive.Core
     [System.Text.Json.Serialization.JsonIgnore]
     public string PrivateInvite { get => Hive.Infrastructure.ProtectedText.Read(ProtectedPrivateInvite); set => ProtectedPrivateInvite = Hive.Infrastructure.ProtectedText.Protect(value); }
     public int MaxParallelLaunches { get; set; } = 1;
+    public int ParallelSignIns { get; set; } = 2;
     public double LaunchDelaySeconds { get; set; } = 3;
     public bool AutoRejoin { get; set; }
     public int MaxRejoinAttempts { get; set; } = 3;
@@ -40,6 +41,8 @@ public sealed class AppPreferences : Hive.Core.IGameWindowPreferences, Hive.Core
         get; set;
     }
     public bool CompactGameWindows { get; set; } = true;
+    public int GameWindowWidth { get; set; } = 800;
+    public int GameWindowHeight { get; set; } = 500;
     public bool AutoRenewSessions { get; set; } = true;
     public bool AutoCheckSessions { get; set; } = true;
     public static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "preferences.json");

@@ -83,3 +83,11 @@ The Windows smoke runner checks migrations, CRUD, case-insensitive uniqueness, s
 - **Account settings**, **Password & security** and **Privacy** open the official Roblox pages in the selected account browser. Security-sensitive changes remain interactive and subject to Roblox verification; Hive does not invent unsupported password/email mutation APIs.
 
 The feature map in `docs/RAM-behavior.md` distinguishes implemented workflows from remaining parity work: Roblox friend presence/follow-by-name discovery, in-process game-disconnect detection and optional richer client controls are not implemented.
+
+## Local MCP control and packaging
+
+`Hive.Mcp` exposes `list_accounts` and `launch_account` through stdio. Run Hive first under the same Windows user; the bridge uses a current-user-only named pipe. Any process running under that Windows user can access the bridge, which returns account names and process status and accepts launch requests; it does not expose passwords, cookies or authentication tickets. This is local control only, not a remote phone service. A task-specific instruction is available at `.agents/skills/hive-control/SKILL.md`.
+
+To build a self-contained Windows x64 portable ZIP and, when `ISCC.exe` is installed, an Inno Setup installer, run `tools/release/build-release.ps1`. The portable program still stores account data in `%LOCALAPPDATA%/Hive`; browser setup may download its managed Chromium on first use. The installer and portable package are local artifacts and are not published automatically. See `docs/2026-10-29-audit.md` for verification and remaining limitations.
+
+Credential batches open up to four isolated browser sessions concurrently (two by default; adjustable in Preferences > Accounts); click Log In and complete any verification in each window. Hive attempts to accept Roblox's OneTrust cookie-consent banner. Game window dimensions are configurable in Preferences > Launch, in physical pixels.

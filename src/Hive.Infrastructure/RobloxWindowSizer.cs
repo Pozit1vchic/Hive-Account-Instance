@@ -7,16 +7,16 @@ internal static class RobloxWindowSizer
 {
     private const uint NoMove = 0x0002, NoZOrder = 0x0004, NoActivate = 0x0010;
 
-    internal static bool ApplyCompactBounds(IntPtr window)
+    internal static bool ApplyCompactBounds(IntPtr window, int width = 800, int height = 500)
     {
         if (window == IntPtr.Zero || !IsWindowVisible(window))
             return false;
         if (IsZoomed(window))
             ShowWindowAsync(window, 9);
-        return SetWindowPos(window, IntPtr.Zero, 0, 0, 800, 500, NoMove | NoZOrder | NoActivate);
+        return SetWindowPos(window, IntPtr.Zero, 0, 0, Math.Clamp(width, 320, 7680), Math.Clamp(height, 240, 4320), NoMove | NoZOrder | NoActivate);
     }
 
-    internal static async Task ResizeWhenReadyAsync(int processId, CancellationToken cancellationToken)
+    internal static async Task ResizeWhenReadyAsync(int processId, CancellationToken cancellationToken, int width = 800, int height = 500)
     {
         try
         {
@@ -32,11 +32,11 @@ internal static class RobloxWindowSizer
                 var window = process.MainWindowHandle;
                 if (window != IntPtr.Zero && IsWindowVisible(window))
                 {
-                    ApplyCompactBounds(window);
+                    ApplyCompactBounds(window, width, height);
                     await Task.Delay(2000, cancellationToken);
                     process.Refresh();
                     if (!process.HasExited && process.StartTime.ToUniversalTime() == started && process.MainWindowHandle == window)
-                        ApplyCompactBounds(window);
+                        ApplyCompactBounds(window, width, height);
                     return;
                 }
                 await Task.Delay(500, cancellationToken);

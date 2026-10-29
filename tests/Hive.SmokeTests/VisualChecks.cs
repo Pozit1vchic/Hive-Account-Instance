@@ -41,6 +41,9 @@ internal static class VisualChecks
         var dpi = VisualTreeHelper.GetDpi(resizeProbe);
         if (Math.Abs(resizeProbe.ActualWidth * dpi.DpiScaleX - 800) > 2 || Math.Abs(resizeProbe.ActualHeight * dpi.DpiScaleY - 500) > 2)
             throw new Exception("Native compact bounds have the wrong dimensions");
+        if (!Hive.Infrastructure.RobloxWindowSizer.ApplyCompactBounds(new System.Windows.Interop.WindowInteropHelper(resizeProbe).Handle, 640, 480)) throw new Exception("Custom window size failed");
+        resizeProbe.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        if (Math.Abs(resizeProbe.ActualWidth * dpi.DpiScaleX - 640) > 2 || Math.Abs(resizeProbe.ActualHeight * dpi.DpiScaleY - 480) > 2) throw new Exception("Custom window size was not applied");
         resizeProbe.Close();
         if (((SolidColorBrush)app.Resources["SurfaceBrush"]).Color != Colors.White)
             throw new Exception("Light theme resource is not white");

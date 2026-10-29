@@ -34,6 +34,22 @@ try
             await session.NavigateAsync(new Uri("https://www.roblox.com/login"));
             if ((await PuppeteerBrowserProvider.OpenPagesAsync(session)).Length != 1)
                 throw new Exception("Repeated navigation opened an extra browser page.");
+            await Task.Delay(3000);
+            var consentVisible = await managedPage.EvaluateExpressionAsync<bool>("!!document.querySelector('#onetrust-accept-btn-handler')?.getClientRects().length");
+            if (consentVisible)
+            {
+                await session.AcceptCookieConsentAsync();
+                await Task.Delay(500);
+                if (await managedPage.EvaluateExpressionAsync<bool>("!!document.querySelector('#onetrust-accept-btn-handler')?.getClientRects().length")) throw new Exception("Cookie consent banner remained visible.");
+                Console.WriteLine("PASS: Roblox cookie-consent banner accepted.");
+            }
+            else
+            {
+                await managedPage.EvaluateExpressionAsync("(() => { const b = document.createElement('button'); b.id = 'onetrust-accept-btn-handler'; b.textContent = 'test'; b.onclick = () => b.remove(); document.body.appendChild(b); })()");
+                await session.AcceptCookieConsentAsync();
+                if (await managedPage.EvaluateExpressionAsync<bool>("!!document.querySelector('#onetrust-accept-btn-handler')")) throw new Exception("Cookie-consent button was not activated.");
+                Console.WriteLine("PASS: consent button handling on a simulated banner; Roblox did not show its own banner in this session.");
+            }
             Console.WriteLine("PASS: Roblox sign-in page opened through Stealth.");
         }
         Console.WriteLine("PASS: PuppeteerSharp + StealthPlugin launch, isolated context, navigation, cookie restore/read.");

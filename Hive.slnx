@@ -4,6 +4,7 @@
     <Project Path="src/Hive.Browser/Hive.Browser.csproj" />
     <Project Path="src/Hive.Core/Hive.Core.csproj" />
     <Project Path="src/Hive.Infrastructure/Hive.Infrastructure.csproj" />
+    <Project Path="src/Hive.Mcp/Hive.Mcp.csproj" />
     <Project Path="src/Hive.Roblox/Hive.Roblox.csproj" />
     <Project Path="src/Hive.Storage/Hive.Storage.csproj" />
   </Folder>

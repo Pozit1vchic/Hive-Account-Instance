@@ -27,6 +27,7 @@ public interface IBrowserSession : IAsyncDisposable
         get;
     }
     Task FillLoginAsync(string username, string password, CancellationToken ct = default) => throw new NotSupportedException();
+    Task AcceptCookieConsentAsync(CancellationToken ct = default) => Task.CompletedTask;
     Task ExecuteScriptAsync(string script, CancellationToken ct = default) => throw new NotSupportedException();
     Task RestoreCookiesAsync(IReadOnlyList<SessionCookie> cookies, CancellationToken cancellationToken = default); Task NavigateAsync(Uri uri, CancellationToken cancellationToken = default); Task<IReadOnlyList<SessionCookie>> ReadCookiesAsync(CancellationToken cancellationToken = default);
 }
@@ -83,6 +84,8 @@ public sealed class ProcessAssignmentException(string message) : Exception(messa
 
 public interface IGameWindowPreferences
 {
+    int GameWindowWidth => 800;
+    int GameWindowHeight => 500;
     bool CompactGameWindows
     {
         get;

@@ -29,7 +29,7 @@ public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountAc
                 {
                     tracker.Attach(request.AccountId, pid.Value);
                     if (preferences?.CompactGameWindows != false)
-                        _ = RobloxWindowSizer.ResizeWhenReadyAsync(pid.Value, ct);
+                        _ = RobloxWindowSizer.ResizeWhenReadyAsync(pid.Value, ct, preferences?.GameWindowWidth ?? 800, preferences?.GameWindowHeight ?? 500);
                     return pid;
                 }
                 catch (ProcessAssignmentException) { }

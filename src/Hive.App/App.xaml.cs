@@ -14,6 +14,7 @@ namespace Hive.App;
 public partial class App : Application
 {
     private IHost? host;
+    private LocalControlServer? controlServer;
     private readonly bool initializeServices;
     public App() : this(true) { }
     public App(bool initializeServices) => this.initializeServices = initializeServices;
@@ -64,6 +65,8 @@ public partial class App : Application
                 catch (RobloxLaunchException error) { vm.Status = error.Message; }
             }
             ThemeManager.Apply(host.Services.GetRequiredService<AppPreferences>());
+            controlServer = new LocalControlServer(vm, host.Services.GetRequiredService<IInstanceManager>(), Dispatcher);
+            controlServer.Start();
             host.Services.GetRequiredService<MainWindow>().Show();
         }
         catch (Exception ex) { Log.Error("Hive startup failed ({ErrorType})", ex.GetType().Name); MessageBox.Show(@"Hive could not open local storage. Check access to %LOCALAPPDATA%\Hive.", "Hive"); Shutdown(1); }
@@ -91,6 +94,7 @@ public partial class App : Application
     }
     protected override void OnExit(ExitEventArgs e)
     {
+        controlServer?.Dispose();
         host?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);
