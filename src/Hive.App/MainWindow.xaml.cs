@@ -82,6 +82,11 @@ public partial class MainWindow : Window
     private void ShowTools(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("Browser profiles", "browser", (_, _) => new ProfilesWindow(model) { Owner = this }.Show()));
+        menu.Items.Add(MenuEntry("Launches", "queue", (_, _) => new LaunchesWindow(model) { Owner = this }.Show()));
+        menu.Items.Add(MenuEntry("Account settings on Roblox", "settings", async (_, _) => await model.OpenAccountSettingsAsync()));
+        menu.Items.Add(MenuEntry("Password and security", "shield", async (_, _) => await model.OpenAccountSettingsAsync("security")));
+        menu.Items.Add(MenuEntry("Account privacy", "eye", async (_, _) => await model.OpenAccountSettingsAsync("privacy")));
         menu.Items.Add(MenuEntry("Import RAM", "import", ImportRam));
         menu.Items.Add(MenuEntry("Check sessions", "refresh", (_, _) => model.CheckCommand.Execute(null)));
         menu.Items.Add(MenuEntry("Network log", "queue", (_, _) => { if (networkLog is not null) new NetworkLogWindow(networkLog) { Owner = this }.Show(); }));
@@ -134,6 +139,17 @@ public partial class MainWindow : Window
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
         menu.IsOpen = true;
     }
+    private void ShowLaunches(object sender, RoutedEventArgs e) => new LaunchesWindow(model) { Owner = this }.Show();
+    private void ShowLaunchMode(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        foreach (var kind in Enum.GetValues<Hive.Core.LaunchKind>())
+        {
+            var title = kind switch { Hive.Core.LaunchKind.PrivateServer => "Private server", Hive.Core.LaunchKind.FollowUser => "Follow user", _ => kind.ToString() };
+            menu.Items.Add(MenuEntry(title, "play", (_, _) => model.LaunchMode = kind));
+        }
+        OpenMenu(menu, (FrameworkElement)sender);
+    }
     private void ShowSavedPlaces(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu();
@@ -141,7 +157,7 @@ public partial class MainWindow : Window
         if (model.SavedPlaces.Count > 0)
             menu.Items.Add(new Separator());
         foreach (var saved in model.SavedPlaces.ToList())
-            menu.Items.Add(MenuEntry(saved.PlaceId + (string.IsNullOrEmpty(saved.JobId) ? "" : " / server"), "play", (_, _) => { model.PlaceId = saved.PlaceId; model.JobId = saved.JobId; }));
+            menu.Items.Add(MenuEntry(saved.Kind + " / " + saved.PlaceId, "play", (_, _) => model.LoadSavedPlace(saved)));
         OpenMenu(menu, (FrameworkElement)sender);
     }
     private async void CreateGroup(object? sender, RoutedEventArgs e)

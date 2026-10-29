@@ -36,10 +36,33 @@ public interface ISessionManager
 }
 public interface IInstanceManager
 {
+    void Cancel(string accountId) { }
     Task EnqueueAsync(LaunchRequest request, CancellationToken cancellationToken = default); IReadOnlyList<GameInstance> Instances
     {
         get;
     }
+}
+
+public interface ILaunchPolicy
+{
+    int MaxParallelLaunches { get; }
+    double LaunchDelaySeconds { get; }
+    bool AutoRejoin { get; }
+    int MaxRejoinAttempts { get; }
+    double RejoinDelaySeconds { get; }
+    bool MultiInstance { get; }
+}
+
+public interface IMultiInstanceCoordinator : IDisposable
+{
+    void Prepare();
+}
+
+public interface IBrowserProfileRepository
+{
+    Task<IReadOnlyList<BrowserProfile>> GetAllAsync(CancellationToken ct = default);
+    Task SaveAsync(BrowserProfile profile, CancellationToken ct = default);
+    Task DeleteAsync(string id, CancellationToken ct = default);
 }
 
 public interface ICredentialStore
@@ -54,7 +77,7 @@ public interface IAccountActivityTracker
     int? GetLiveProcessId(string accountId);
     void Detach(string accountId);
 }
-public sealed record SessionCheck(SessionState State, bool Confirmed, string Message);
+public sealed record SessionCheck(SessionState State, bool Confirmed, string Message, int? HttpStatus = null);
 
 public sealed class ProcessAssignmentException(string message) : Exception(message);
 

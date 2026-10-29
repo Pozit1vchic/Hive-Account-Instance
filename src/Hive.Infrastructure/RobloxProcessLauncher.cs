@@ -5,10 +5,11 @@ using Hive.Core;
 using Microsoft.Win32;
 namespace Hive.Infrastructure;
 
-public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountActivityTracker tracker, IGameWindowPreferences? preferences = null) : ILaunchDispatcher
+public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountActivityTracker tracker, IGameWindowPreferences? preferences = null, ILaunchPolicy? policy = null, IMultiInstanceCoordinator? multiInstance = null) : ILaunchDispatcher
 {
     public async Task<int?> DispatchAsync(LaunchRequest request, CancellationToken ct = default)
     {
+        if (policy?.MultiInstance == true) multiInstance?.Prepare();
         using (var protocol = Registry.ClassesRoot.OpenSubKey(@"roblox-player\shell\open\command"))
         {
             if (protocol is null)

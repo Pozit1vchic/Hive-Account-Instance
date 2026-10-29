@@ -72,6 +72,8 @@ try
     await PersistenceChecks.RunAsync(folder);
     await BrowserFlowChecks.RunAsync(database, accounts, sessions, folder);
     await LaunchChecks.RunAsync(accounts, sessions);
+    await AdvancedLaunchChecks.RunAsync();
+    await ProfileChecks.RunAsync(folder);
     Exception? renderError = null;
     var thread = new Thread(() => { try { VisualChecks.Run(folder); } catch (Exception ex) { renderError = ex; } });
     thread.SetApartmentState(ApartmentState.STA);

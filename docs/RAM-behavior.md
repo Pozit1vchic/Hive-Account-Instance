@@ -14,20 +14,20 @@ Hive recreates browser sign-in, stable-ID deduplication and saved-session browsi
 
 [Account.cs](https://github.com/ic3w0lf22/Roblox-Account-Manager/blob/c2b13d146d5db609d499870145e8d2dff2506581/RBX%20Alt%20Manager/Classes/Account.cs) obtains CSRF/authentication tickets, builds game launch requests, handles PlaceId/JobId and private servers, and associates launches with browser tracker identifiers. The main form controls launch order/delay. [RobloxWatcher.cs](https://github.com/ic3w0lf22/Roblox-Account-Manager/blob/c2b13d146d5db609d499870145e8d2dff2506581/RBX%20Alt%20Manager/Classes/RobloxWatcher.cs) and RobloxProcess.cs inspect processes/logs and maintain window/process state.
 
-Hive obtains authentication tickets with one CSRF retry and builds encoded PlaceId/JobId protocol requests. A bounded serial queue spaces launches; the Windows dispatcher matches the generated browser tracker identifier against Roblox process command lines before assigning AccountId to PID. An unconfirmed launch stays AwaitingProcess. Explicit manual linking remains available, and process start time rejects recycled PIDs. Browser-open state is never treated as a running game.
+Hive obtains authentication tickets with one CSRF retry and builds encoded PlaceId/JobId protocol requests. A bounded queue with configurable parallelism spaces launches; the Windows dispatcher matches the generated browser tracker identifier against Roblox process command lines before assigning AccountId to PID. An unconfirmed launch stays AwaitingProcess. Explicit manual linking remains available, and process start time rejects recycled PIDs. Browser-open state is never treated as a running game.
 
 ## Feature disposition
 
 | Legacy capability | Hive status |
 | --- | --- |
 | Manual login / User:Pass / cookies / Custom URL + JS | Implemented with isolated browser contexts and identity verification; user-supplied scripts execute only when explicitly selected |
-| Open an account's browser | Implemented with private context restoration |
+| Open an account's browser / profiles | Private context restoration, per-account profile library, rename/reset/archive and last-used metadata implemented |
 | Aliases/descriptions and RAM import | Descriptions editable; imported alias retained; readable JSON import implemented |
 | Refresh cookies | Implemented with scheduling, CSRF retry, encrypted replacement and rate-limit throttling |
 | Groups / favorites / saved places | SQLite group management, favorite filter, saved places and current launch target implemented; Roblox presence remains future work |
-| PlaceId/JobId, private servers, follow user | PlaceId/JobId ticket launcher implemented; private servers and follow-user remain future work |
-| Launch queue, multi-instance, watcher, rejoin | Bounded queue and correlated process watcher implemented; multi-instance and automatic rejoin remain future work |
-| Account utilities | Session checks, encrypted database backup, metadata export, redacted Network Log and graceful selected-game closure implemented; password/email/privacy mutations remain outside this increment |
+| PlaceId/JobId, private servers, follow user | PlaceId/JobId, private invite/access code/share-link resolution and follow-user ID protocol targets implemented; live permissions remain enforced by Roblox |
+| Launch queue, multi-instance, watcher, rejoin | Configurable parallel queue, cancel controls, correlated process watcher, pre-launch singleton coordination and bounded exponential auto-rejoin implemented; process-alive disconnect detection remains future work |
+| Account utilities | Session checks, encrypted database backup, metadata export, redacted Network Log and graceful selected-game closure implemented; official account/security/privacy browser pages added; direct password/email mutations remain interactive |
 | Local API / account control | Not adopted; Hive has no listening web server or custom backend |
 | Custom script/captcha-service hooks | Explicit Custom URL + JS flow implemented; external captcha-service integration not adopted |
 

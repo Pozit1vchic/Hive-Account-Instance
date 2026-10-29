@@ -32,7 +32,7 @@ public sealed class SvgIcon : FrameworkElement
             _ => null
         };
     }
-    protected override Size MeasureOverride(Size availableSize) => new(18, 18);
+    protected override Size MeasureOverride(Size availableSize) => new(Math.Min(18, availableSize.Width), Math.Min(18, availableSize.Height));
     protected override void OnRender(DrawingContext context)
     {
         base.OnRender(context);
@@ -49,13 +49,13 @@ public sealed class SvgIcon : FrameworkElement
             Cache.Add(NameKey, geometries);
         }
         var scale = Math.Min(ActualWidth, ActualHeight) / 24;
-        var pen = new Pen(Foreground, 1.8) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
-        context.PushTransform(new TranslateTransform((ActualWidth - 24 * scale) / 2, (ActualHeight - 24 * scale) / 2));
-        context.PushTransform(new ScaleTransform(scale, scale));
+        var pen = new Pen(Foreground, Math.Min(ActualWidth, ActualHeight) >= 18 ? 1.7 : 1.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+        var matrix = new Matrix(scale, 0, 0, scale, (ActualWidth - 24 * scale) / 2, (ActualHeight - 24 * scale) / 2);
         foreach (var geometry in geometries)
-            context.DrawGeometry(null, pen, geometry);
-        context.Pop();
-        context.Pop();
+        {
+            var drawing = geometry.Clone(); drawing.Transform = new MatrixTransform(matrix);
+            context.DrawGeometry(null, pen, drawing);
+        }
     }
 }
 public static class Motion

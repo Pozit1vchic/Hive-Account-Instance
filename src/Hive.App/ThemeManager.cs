@@ -31,7 +31,7 @@ public static class ThemeManager
         Set("SubtleBrush", dark ? "#293347" : "#F6F8FC");
         Set("InputBrush", dark ? "#191F2D" : "#FAFBFE");
         Set("InkBrush", dark ? "#F0EDF8" : "#29313F");
-        Set("MutedBrush", dark ? "#A8A7BD" : "#828896");
+        Set("MutedBrush", dark ? "#A8B4C8" : "#657186");
         Set("LineBrush", dark ? "#354258" : "#E1E6EF");
         Set("SelectedBrush", preferences.Accent switch
         {

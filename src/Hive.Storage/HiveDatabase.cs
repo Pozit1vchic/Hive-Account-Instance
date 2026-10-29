@@ -51,6 +51,12 @@ public sealed class HiveDatabase(string path)
    CREATE UNIQUE INDEX IX_Accounts_RobloxUserId ON Accounts(RobloxUserId) WHERE RobloxUserId IS NOT NULL;
    INSERT INTO SchemaMigrations(Version) VALUES(3);
    """, transaction: transaction, cancellationToken: ct));
+        if (version < 4)
+            await connection.ExecuteAsync(new CommandDefinition("""
+   ALTER TABLE BrowserProfiles ADD COLUMN AccountId TEXT NULL REFERENCES Accounts(Id) ON DELETE CASCADE;
+   ALTER TABLE BrowserProfiles ADD COLUMN LastUsedAt TEXT NULL;
+   INSERT INTO SchemaMigrations(Version) VALUES(4);
+   """, transaction: transaction, cancellationToken: ct));
         await transaction.CommitAsync(ct);
     }
 }

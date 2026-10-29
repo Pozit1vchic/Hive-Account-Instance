@@ -64,7 +64,7 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
             checksPausedUntil = DateTimeOffset.UtcNow.AddMinutes(5);
         if (!response.IsSuccessStatusCode)
-            return new(account.SessionState, false, $"Roblox is temporarily unavailable ({(int)response.StatusCode}). Retrying later.");
+            return new(account.SessionState, false, $"Roblox is temporarily unavailable ({(int)response.StatusCode}). Retrying later.", (int)response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         if (!document.RootElement.TryGetProperty("name", out var name) || !(account.RobloxUserId.HasValue && document.RootElement.TryGetProperty("id", out var userId) ? userId.GetInt64() == account.RobloxUserId.Value : string.Equals(name.GetString(), account.Username, StringComparison.OrdinalIgnoreCase)))
             return markInvalid ? await MarkAsync(account.Id, SessionState.ReauthenticationRequired, "This session belongs to another account. Sign in as the selected user.", ct) : new(SessionState.Unknown, false, "Sign in as the selected account.");
@@ -127,8 +127,8 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
     }
     public async Task<RobloxLaunchSpec> CreateLaunchAsync(LaunchRequest request, CancellationToken ct = default)
     {
-        if (request.PlaceId <= 0 || (!string.IsNullOrWhiteSpace(request.JobId) && !Guid.TryParse(request.JobId, out _)))
-            throw new RobloxLaunchException("Enter a positive Place ID and an optional valid Job ID.");
+        try { LaunchTarget.Validate(request); }
+        catch (ArgumentException) { throw new RobloxLaunchException("Check the selected launch target and server details."); }
         await gate.WaitAsync(ct);
         try
         {
@@ -136,18 +136,23 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
             var saved = await sessions.ReadAsync(account.Id, ct) ?? throw new RobloxLaunchException("Sign in before launching this account.");
             var check = await ValidateCoreAsync(account, saved, true, ct, false);
             if (check.State != SessionState.Valid || !check.Confirmed)
-                throw new RobloxLaunchException(check.Message);
+                throw new RobloxLaunchException(check.Message, check.State != SessionState.ReauthenticationRequired && check.HttpStatus != 403);
             saved = (await sessions.ReadAsync(account.Id, ct))!;
             var token = saved.Cookies.First(c => c.Name == ".ROBLOSECURITY");
             var jar = new CookieContainer();
             jar.Add(new Cookie(".ROBLOSECURITY", token.Value, "/", ".roblox.com") { Secure = true, HttpOnly = true });
             using var handler = handlerFactory?.Invoke(jar) ?? new HttpClientHandler { CookieContainer = jar, AllowAutoRedirect = false };
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+            if (request.PrivateInviteUrl is not null)
+            {
+                try { request = await PrivateInviteResolver.ResolveAsync(request, client, ct); }
+                finally { await sessions.SaveAsync(account.Id, MergeCookies(saved, jar, saved.LastRenewedAt), ct); }
+            }
             async Task<HttpResponseMessage> RequestTicket(string? csrf)
             {
                 using var message = new HttpRequestMessage(HttpMethod.Post, "https://auth.roblox.com/v1/authentication-ticket/");
                 message.Content = new System.Net.Http.StringContent("{}", System.Text.Encoding.UTF8, "application/json");
-                message.Headers.Referrer = new Uri($"https://www.roblox.com/games/{request.PlaceId}/");
+                message.Headers.Referrer = new Uri(request.Kind == LaunchKind.FollowUser ? $"https://www.roblox.com/users/{request.FollowUserId}/profile" : $"https://www.roblox.com/games/{request.PlaceId}/");
                 message.Headers.TryAddWithoutValidation("RBXAuthenticationNegotiation", "1");
                 if (csrf is not null)
                     message.Headers.TryAddWithoutValidation("x-csrf-token", csrf);
@@ -172,11 +177,11 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
                     throw new RobloxLaunchException("Session expired. Sign in again.");
                 }
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                    throw new RobloxLaunchException("Roblox is rate limiting launches. Try again later.");
+                    throw new RobloxLaunchException("Roblox is rate limiting launches. Try again later.", true);
                 if (response.StatusCode == HttpStatusCode.Forbidden)
                     throw new RobloxLaunchException("Roblox blocked the launch (403). Open the account browser and complete any verification.");
                 if (!response.IsSuccessStatusCode)
-                    throw new RobloxLaunchException($"Roblox rejected the launch request (HTTP {(int)response.StatusCode}). Try again later.");
+                    throw new RobloxLaunchException($"Roblox rejected the launch request (HTTP {(int)response.StatusCode}). Try again later.", (int)response.StatusCode >= 500);
                 if (!response.Headers.TryGetValues("rbx-authentication-ticket", out var tickets))
                     throw new RobloxLaunchException("Roblox did not return a launch ticket. Try again or sign in again.");
                 var ticket = tickets.FirstOrDefault();

@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 namespace Hive.App;
 
-public sealed class AppPreferences : Hive.Core.IGameWindowPreferences
+public sealed class AppPreferences : Hive.Core.IGameWindowPreferences, Hive.Core.ILaunchPolicy
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public string? StoragePath
@@ -13,6 +13,17 @@ public sealed class AppPreferences : Hive.Core.IGameWindowPreferences
     public List<SavedPlace> SavedPlaces { get; set; } = [];
     public string PlaceId { get; set; } = "";
     public string JobId { get; set; } = "";
+    public Hive.Core.LaunchKind LaunchKind { get; set; }
+    public string FollowUserId { get; set; } = "";
+    public string ProtectedPrivateInvite { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string PrivateInvite { get => Hive.Infrastructure.ProtectedText.Read(ProtectedPrivateInvite); set => ProtectedPrivateInvite = Hive.Infrastructure.ProtectedText.Protect(value); }
+    public int MaxParallelLaunches { get; set; } = 1;
+    public double LaunchDelaySeconds { get; set; } = 3;
+    public bool AutoRejoin { get; set; }
+    public int MaxRejoinAttempts { get; set; } = 3;
+    public double RejoinDelaySeconds { get; set; } = 5;
+    public bool MultiInstance { get; set; }
     public bool DarkTheme
     {
         get; set;
@@ -54,4 +65,4 @@ public sealed class AppPreferences : Hive.Core.IGameWindowPreferences
     }
 }
 
-public sealed record SavedPlace(string PlaceId, string JobId);
+public sealed record SavedPlace(string PlaceId, string JobId, Hive.Core.LaunchKind Kind = Hive.Core.LaunchKind.Place, string? ProtectedArgument = null);

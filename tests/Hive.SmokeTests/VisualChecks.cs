@@ -48,6 +48,12 @@ internal static class VisualChecks
         window.Width = 860;
         window.Height = 540;
         Capture(window, "artifacts/accounts-small-preview.png");
+        foreach (var mode in new[] { Hive.Core.LaunchKind.Server, Hive.Core.LaunchKind.PrivateServer, Hive.Core.LaunchKind.FollowUser })
+        {
+            vm.LaunchMode = mode;
+            Capture(window, $"artifacts/target-{mode.ToString().ToLowerInvariant()}.png");
+        }
+        vm.LaunchMode = Hive.Core.LaunchKind.Place;
         window.Width = 1100;
         window.Height = 700;
         if (window.FindName("PasswordInput") is not null)
@@ -84,6 +90,11 @@ internal static class VisualChecks
         completion.SetResult(false);
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
         retry.Close();
+        vm.BrowserProfiles.Add(new("preview-profile-a","Default profile",Path.Combine(folder,"profiles","a"),"preview-a",DateTimeOffset.UtcNow));
+        vm.BrowserProfiles.Add(new("preview-profile-b","Trading profile",Path.Combine(folder,"profiles","b"),"preview-b"));
+        var profilesWindow = new ProfilesWindow(vm) { Owner = window }; profilesWindow.Show(); Capture(profilesWindow,"artifacts/profiles-preview.png"); profilesWindow.Close();
+        var prompt = new TextPromptWindow("New group", "Group name") { Owner = window }; prompt.Show(); Capture(prompt,"artifacts/text-prompt.png"); prompt.Close();
+        var launchesWindow = new LaunchesWindow(vm) { Owner = window }; launchesWindow.Show(); Capture(launchesWindow,"artifacts/launches-preview.png"); launchesWindow.Close();
         var modal = new AddAccountsWindow("Cookies", false) { Owner = window };
         modal.SubmitAsync = () => Task.FromResult(true);
         modal.Loaded += (_, _) => modal.Dispatcher.BeginInvoke(new Action(() => { ((TextBox)modal.FindName("CookiesInput")).Text = "local-confirmation-test"; ((Button)modal.FindName("ContinueButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }));
@@ -103,11 +114,11 @@ internal static class VisualChecks
         var settings = new SettingsWindow(vm) { Owner = window };
         settings.Show();
         Capture(settings, "artifacts/accounts-settings-preview.png");
-        settings.Width = 880;
-        settings.Height = 680;
+        settings.Width = 760;
+        settings.Height = 540;
         Capture(settings, "artifacts/settings-small-preview.png");
-        settings.Width = 930;
-        settings.Height = 730;
+        settings.Width = 800;
+        settings.Height = 600;
         var tabs = Find<TabControl>(settings);
         if (tabs is null || tabs.Items.Count != 3)
             throw new Exception("Settings categories are missing");

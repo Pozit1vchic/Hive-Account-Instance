@@ -13,7 +13,7 @@ internal static class PreviewFixtures
         var repository = new FixtureRepository();
         var database = new HiveDatabase(Path.Combine(Path.GetTempPath(), "Hive-unused-preview.db"));
         var preferences = new AppPreferences { AutoCheckSessions = false, AnimationsEnabled = false, StoragePath = preferencesPath };
-        var vm = new AccountsViewModel(repository, new FixtureCredentials(), new SessionManager(new SessionStore(database, new DpapiSecretProtector()), repository), new FixtureTracker(), new ConfiguredBrowserProvider(preferences, ""), preferences, NullLogger<AccountsViewModel>.Instance);
+        var vm = new AccountsViewModel(repository, new FixtureCredentials(), new SessionManager(new SessionStore(database, new DpapiSecretProtector()), repository), new FixtureTracker(), new ConfiguredBrowserProvider(preferences, ""), preferences, NullLogger<AccountsViewModel>.Instance, instances: new FixtureInstances());
         vm.LoadAsync().GetAwaiter().GetResult();
         vm.Selected = vm.Accounts[0];
         return vm;
@@ -44,5 +44,10 @@ internal static class PreviewFixtures
         public void Detach(string accountId)
         {
         }
+    }
+    private sealed class FixtureInstances : IInstanceManager
+    {
+        public IReadOnlyList<GameInstance> Instances => [new("preview-a",12480,InstanceState.Running,0),new("preview-b",12912,InstanceState.Running,1),new("preview-c",null,InstanceState.Queued,0)];
+        public Task EnqueueAsync(LaunchRequest request,CancellationToken ct = default) => Task.CompletedTask;
     }
 }

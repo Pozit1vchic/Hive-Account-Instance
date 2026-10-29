@@ -56,6 +56,9 @@ public sealed class AccountsViewModel : ObservableObject
 {
     private readonly IInstanceManager? instances;
     private readonly IAccountGroupRepository? groupRepository;
+    private readonly IBrowserProfileRepository? profileRepository;
+    private readonly string ProfileRoot;
+    private readonly IMultiInstanceCoordinator? multiInstance;
     private readonly IAccountRepository repository; private readonly ICredentialStore credentials;
     private readonly SessionManager sessions; private readonly IAccountActivityTracker tracker; private readonly IBrowserProvider browser;
     private readonly AccountOnboardingService? onboarding; private readonly ISessionStore? sessionStore;
@@ -66,8 +69,11 @@ public sealed class AccountsViewModel : ObservableObject
     private string username = "", notes = "", search = "", status = "Ready", processId = ""; private bool busy, settingsOpen;
     private Task? activeOperation;
     private CancellationTokenSource? loginCancellation;
-    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null)
+    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null, IBrowserProfileRepository? profileRepository = null, IMultiInstanceCoordinator? multiInstance = null, string? profileDirectory = null)
     {
+        ProfileRoot = System.IO.Path.GetFullPath(profileDirectory ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "BrowserProfiles"));
+        this.profileRepository = profileRepository;
+        this.multiInstance = multiInstance;
         this.groupRepository = groupRepository;
         this.instances = instances;
         this.onboarding = onboarding;
@@ -247,7 +253,7 @@ public sealed class AccountsViewModel : ObservableObject
             if (Selected is null)
                 return "Select an account to launch";
             var state = instances?.Instances.FirstOrDefault(i => i.AccountId == Selected.Id);
-            return state?.Detail ?? state?.State.ToString() ?? Selected.StateLabel;
+            return state is null ? Selected.StateLabel : state.State switch { InstanceState.Backoff => $"Rejoining · attempt {state.RejoinAttempts}", InstanceState.AwaitingProcess => "Waiting for process", InstanceState.Failed => "Launch failed", _ => state.State.ToString() };
         }
     }
     private async Task LaunchSelectedAsync()
@@ -257,12 +263,9 @@ public sealed class AccountsViewModel : ObservableObject
             Status = "Select an account to launch.";
             return;
         }
-        if (!long.TryParse(PlaceId, out var place) || place <= 0 || (!string.IsNullOrWhiteSpace(JobId) && !Guid.TryParse(JobId, out _)))
-        {
-            Status = "Enter a positive Place ID and an optional valid Job ID.";
-            return;
-        }
-        await instances.EnqueueAsync(new(Selected.Id, place, string.IsNullOrWhiteSpace(JobId) ? null : JobId.Trim()), lifetime.Token);
+        LaunchRequest request;
+        try { request = BuildLaunchRequest(Selected.Id); } catch (FormatException error) { Status = error.Message; return; }
+        await instances.EnqueueAsync(request, lifetime.Token);
         Status = "Launch queued. Session and process identity will be verified.";
         Changed(nameof(LaunchStatus));
     }
@@ -391,6 +394,39 @@ public sealed class AccountsViewModel : ObservableObject
             _ = RefreshPasswordsAsync();
         }
     }
+    public LaunchKind LaunchMode
+    {
+        get => preferences.LaunchKind;
+        set { if (preferences.LaunchKind == value) return; preferences.LaunchKind = value; SavePreferences(); Changed(); Changed(nameof(LaunchModeLabel)); Changed(nameof(TargetLabel)); Changed(nameof(ArgumentLabel)); Changed(nameof(LaunchTargetId)); Changed(nameof(LaunchArgument)); Changed(nameof(HasLaunchArgument)); }
+    }
+    public string LaunchModeLabel => LaunchMode switch { LaunchKind.Server => "Server", LaunchKind.PrivateServer => "Private server", LaunchKind.FollowUser => "Follow user", _ => "Place" };
+    public string TargetLabel => LaunchMode == LaunchKind.FollowUser ? "User ID" : "Place ID";
+    public string ArgumentLabel => LaunchMode == LaunchKind.PrivateServer ? "Invite URL / access code" : "Job ID (optional)";
+    public bool HasLaunchArgument => LaunchMode != LaunchKind.FollowUser;
+    public string LaunchTargetId { get => LaunchMode == LaunchKind.FollowUser ? preferences.FollowUserId : PlaceId; set { if (LaunchMode == LaunchKind.FollowUser) { preferences.FollowUserId = value; SavePreferences(); } else PlaceId = value; Changed(); } }
+    public string LaunchArgument { get => LaunchMode == LaunchKind.PrivateServer ? preferences.PrivateInvite : JobId; set { if (LaunchMode == LaunchKind.PrivateServer) { preferences.PrivateInvite = value; SavePreferences(); } else JobId = value; Changed(); } }
+    private LaunchRequest BuildLaunchRequest(string id) => LaunchTarget.Parse(id, LaunchMode, LaunchTargetId, LaunchArgument);
+    public void LoadSavedPlace(SavedPlace saved) { LaunchMode = saved.Kind; LaunchTargetId = saved.PlaceId; LaunchArgument = saved.Kind == LaunchKind.PrivateServer ? Hive.Infrastructure.ProtectedText.Read(saved.ProtectedArgument) : saved.JobId; }
+    public int MaxParallelLaunches { get => preferences.MaxParallelLaunches; set { preferences.MaxParallelLaunches = Math.Clamp(value, 1, 4); SavePreferences(); Changed(); } }
+    public double LaunchDelaySeconds { get => preferences.LaunchDelaySeconds; set { preferences.LaunchDelaySeconds = Math.Clamp(value, 0, 30); SavePreferences(); Changed(); } }
+    public bool AutoRejoin { get => preferences.AutoRejoin; set { preferences.AutoRejoin = value; if (!value) foreach (var item in Launches.Where(x => x.State == InstanceState.Backoff)) instances?.Cancel(item.AccountId); SavePreferences(); Changed(); } }
+    public int MaxRejoinAttempts { get => preferences.MaxRejoinAttempts; set { preferences.MaxRejoinAttempts = Math.Clamp(value, 1, 10); SavePreferences(); Changed(); } }
+    public double RejoinDelaySeconds { get => preferences.RejoinDelaySeconds; set { preferences.RejoinDelaySeconds = Math.Clamp(value, 2, 60); SavePreferences(); Changed(); } }
+    public bool MultiInstance
+    {
+        get => preferences.MultiInstance;
+        set
+        {
+            if (preferences.MultiInstance == value) return;
+            try { if (value) multiInstance?.Prepare(); else multiInstance?.Dispose(); preferences.MultiInstance = value; SavePreferences(); }
+            catch (RobloxLaunchException error) { preferencesStatus = error.Message; Changed(nameof(PreferencesStatus)); }
+            Changed();
+        }
+    }
+    public IReadOnlyList<GameInstance> Launches => instances?.Instances ?? [];
+    public string AccountName(string id) => all.FirstOrDefault(a => a.Id == id)?.Username ?? "Removed account";
+    public void CancelLaunch(string id) => instances?.Cancel(id);
+    public int LaunchCount => Launches.Count(x => x.State is InstanceState.Queued or InstanceState.Starting or InstanceState.Backoff);
     public bool CompactGameWindows
     {
         get => preferences.CompactGameWindows;
@@ -460,6 +496,7 @@ public sealed class AccountsViewModel : ObservableObject
                 Groups.Add(group);
         }
         await RefreshPasswordsAsync();
+        await ReloadProfilesAsync();
         Filter();
         Selected = Accounts.FirstOrDefault(a => a.Id == id) ?? Accounts.FirstOrDefault();
         RefreshActivity();
@@ -497,6 +534,7 @@ public sealed class AccountsViewModel : ObservableObject
         var closed = 0;
         foreach (var id in ids)
         {
+            instances?.Cancel(id);
             if (tracker.GetLiveProcessId(id) is not int pid)
                 continue;
             try
@@ -527,13 +565,11 @@ public sealed class AccountsViewModel : ObservableObject
     public IReadOnlyList<SavedPlace> SavedPlaces => preferences.SavedPlaces;
     public void SaveCurrentPlace()
     {
-        if (!long.TryParse(PlaceId, out var place) || place <= 0 || (!string.IsNullOrWhiteSpace(JobId) && !Guid.TryParse(JobId, out _)))
-        {
-            Status = "Enter a valid Place ID and optional Job ID.";
-            return;
-        }
-        var saved = new SavedPlace(PlaceId.Trim(), JobId.Trim());
-        if (!preferences.SavedPlaces.Contains(saved))
+        LaunchRequest request;
+        try { request = BuildLaunchRequest("saved-target"); } catch (FormatException error) { Status = error.Message; return; }
+        var target = LaunchMode == LaunchKind.FollowUser ? request.FollowUserId!.Value.ToString() : request.PlaceId > 0 ? request.PlaceId.ToString() : LaunchTargetId.Trim();
+        var saved = new SavedPlace(target, LaunchMode == LaunchKind.PrivateServer ? "" : LaunchArgument.Trim(), LaunchMode, LaunchMode == LaunchKind.PrivateServer ? preferences.ProtectedPrivateInvite : null);
+        if (!preferences.SavedPlaces.Any(p => p.PlaceId == saved.PlaceId && p.Kind == saved.Kind && (saved.Kind == LaunchKind.PrivateServer ? Hive.Infrastructure.ProtectedText.Read(p.ProtectedArgument) == LaunchArgument : p.JobId == saved.JobId)))
             preferences.SavedPlaces.Add(saved);
         SavePreferences();
         Status = "Place saved.";
@@ -587,17 +623,13 @@ public sealed class AccountsViewModel : ObservableObject
             Status = "Select accounts to launch.";
             return;
         }
-        if (!long.TryParse(PlaceId, out var place) || place <= 0 || (!string.IsNullOrWhiteSpace(JobId) && !Guid.TryParse(JobId, out _)))
-        {
-            Status = "Enter a valid Place ID and optional Job ID.";
-            return;
-        }
+        try { _ = BuildLaunchRequest(ids[0]); } catch (FormatException error) { Status = error.Message; return; }
         var queued = 0;
         foreach (var id in ids.Distinct())
         {
             try
             {
-                await instances.EnqueueAsync(new(id, place, string.IsNullOrWhiteSpace(JobId) ? null : JobId.Trim()), lifetime.Token);
+                await instances.EnqueueAsync(BuildLaunchRequest(id), lifetime.Token);
                 queued++;
             }
             catch (RobloxLaunchException) { }
@@ -624,6 +656,7 @@ public sealed class AccountsViewModel : ObservableObject
         Changed(nameof(RunningCount));
         Changed(nameof(AttentionCount));
     }
+    private GameInstance? lastReportedLaunch;
     public void RefreshActivity()
     {
         foreach (var row in all)
@@ -631,6 +664,11 @@ public sealed class AccountsViewModel : ObservableObject
         Filter();
         Changed(nameof(SessionLabel));
         Changed(nameof(LaunchStatus));
+        Changed(nameof(LaunchCount));
+        var current = instances?.Instances.FirstOrDefault(item => item.AccountId == Selected?.Id);
+        if (current != lastReportedLaunch && current is { State: InstanceState.Failed or InstanceState.AwaitingProcess, Detail: not null })
+            Status = current.Detail;
+        lastReportedLaunch = current;
     }
     private async Task SaveAsync()
     {
@@ -660,6 +698,7 @@ public sealed class AccountsViewModel : ObservableObject
         if (System.Windows.MessageBox.Show("Delete this account, its password and saved session?", "Hive", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question) != System.Windows.MessageBoxResult.Yes)
             return;
         var id = Selected.Id;
+        instances?.Cancel(id);
         await repository.DeleteAsync(id);
         tracker.Detach(id);
         Selected = null;
@@ -775,8 +814,9 @@ public sealed class AccountsViewModel : ObservableObject
         try
         {
             Status = expected is null ? "Preparing the browser (first launch may download Chrome). Complete Roblox sign-in in the window that opens." : $"Sign in as {expected.Username} in the browser. Use Cancel to stop.";
-            var profileId = expected?.Id ?? Guid.NewGuid().ToString("N");
-            var root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "BrowserProfiles", profileId);
+            var knownProfile = expected is not null ? await ProfileForAsync(expected) : null;
+            var profileId = knownProfile?.Id ?? Guid.NewGuid().ToString("N");
+            var root = knownProfile?.DirectoryPath ?? System.IO.Path.Combine(ProfileRoot, profileId);
             await using var session = await browser.OpenAsync(new(profileId, "Sign in", root), ct);
             await session.NavigateAsync(startUrl ?? new Uri("https://www.roblox.com/login"), ct);
             if (login is not null)
@@ -810,6 +850,7 @@ public sealed class AccountsViewModel : ObservableObject
                     if (added is null)
                         continue;
                     LastAddedCount++;
+                    if (profileRepository is not null && !(await profileRepository.GetAllAsync(ct)).Any(p => p.AccountId == added.Id)) await profileRepository.SaveAsync(new(profileId, added.Username, root, added.Id, DateTimeOffset.UtcNow), ct);
                     if (login is not null)
                     {
                         try
@@ -841,7 +882,59 @@ public sealed class AccountsViewModel : ObservableObject
         }
         finally { loginCancellation.Dispose(); loginCancellation = null; }
     }
-    private async Task OpenBrowserAsync()
+    public ObservableCollection<BrowserProfile> BrowserProfiles { get; } = [];
+    private async Task ReloadProfilesAsync()
+    {
+        if (profileRepository is null) return;
+        BrowserProfiles.Clear(); foreach (var profile in await profileRepository.GetAllAsync()) BrowserProfiles.Add(profile);
+    }
+    private string OwnedProfilePath(BrowserProfile profile)
+    {
+        var path = System.IO.Path.GetFullPath(profile.DirectoryPath);
+        if (!path.StartsWith(System.IO.Path.GetFullPath(ProfileRoot) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new System.IO.IOException("Profile is outside Hive's folder.");
+        return path;
+    }
+    private async Task<BrowserProfile> ProfileForAsync(AccountRow account)
+    {
+        var found = profileRepository is null ? null : (await profileRepository.GetAllAsync()).FirstOrDefault(p => p.AccountId == account.Id);
+        if (found is not null) { _ = OwnedProfilePath(found); return found; }
+        var id = Guid.NewGuid().ToString("N");
+        var profile = new BrowserProfile(id, account.Username, System.IO.Path.Combine(ProfileRoot, id), account.Id);
+        if (profileRepository is not null) await profileRepository.SaveAsync(profile);
+        return profile;
+    }
+    public Task CreateProfileAsync(string name) => RunAsync(async () =>
+    {
+        if (Selected is null || profileRepository is null) { Status = "Select an account first."; return; }
+        var id = Guid.NewGuid().ToString("N"); await profileRepository.SaveAsync(new(id, name.Trim(), System.IO.Path.Combine(ProfileRoot, id), Selected.Id)); await ReloadProfilesAsync(); Status = "Profile created.";
+    });
+    public Task RenameProfileAsync(BrowserProfile profile, string name) => RunAsync(async () =>
+    {
+        if (profileRepository is null) return;
+        await profileRepository.SaveAsync(profile with { Name = name.Trim() }); await ReloadProfilesAsync(); Status = "Profile renamed.";
+    });
+    public Task RemoveProfileAsync(BrowserProfile profile, bool resetOnly) => RunAsync(async () =>
+    {
+        if (profileRepository is null) return;
+        if (profile.AccountId is not null && openBrowsers.TryGetValue(profile.AccountId, out var browserSession) && browserSession.IsOpen) { Status = "Close this account's browser first."; return; }
+        var path = OwnedProfilePath(profile);
+        if (System.IO.Directory.Exists(path))
+        {
+            var archive = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(ProfileRoot)!, "ProfileArchive"); System.IO.Directory.CreateDirectory(archive);
+            System.IO.Directory.Move(path, System.IO.Path.Combine(archive, Guid.NewGuid().ToString("N")));
+        }
+        if (resetOnly) await profileRepository.SaveAsync(profile with { LastUsedAt = null }); else await profileRepository.DeleteAsync(profile.Id);
+        await ReloadProfilesAsync(); Status = resetOnly ? "Profile cache reset; saved account session kept." : "Profile removed; its cache was archived.";
+    });
+    public Task OpenProfileAsync(BrowserProfile profile) => RunAsync(async () =>
+    {
+        SelectedGroup = null; Search = ""; FilterMode = "All"; Selected = all.FirstOrDefault(a => a.Id == profile.AccountId);
+        if (Selected is null) { Status = "This profile has no available account."; return; }
+        _ = OwnedProfilePath(profile); await OpenBrowserAtAsync(new Uri("https://www.roblox.com/home"), profile);
+    });
+    public Task OpenAccountSettingsAsync(string section = "info") => RunAsync(() => OpenBrowserAtAsync(new Uri("https://www.roblox.com/my/account" + (section == "info" ? "" : section is "security" or "privacy" ? "#!/" + section : ""))));
+    private Task OpenBrowserAsync() => OpenBrowserAtAsync(new Uri("https://www.roblox.com/home"));
+    private async Task OpenBrowserAtAsync(Uri address, BrowserProfile? preferred = null)
     {
         if (Selected is null || sessionStore is null)
         {
@@ -851,8 +944,8 @@ public sealed class AccountsViewModel : ObservableObject
         var account = Selected;
         if (openBrowsers.TryGetValue(account.Id, out var active) && active.IsOpen)
         {
-            Status = "This account already has an open browser window.";
-            return;
+            if (preferred is not null) { Status = "Close the current account browser before opening another profile."; return; }
+            await active.NavigateAsync(address, lifetime.Token); Status = "Browser page opened."; return;
         }
         var check = await sessions.CheckAsync(account.Id, lifetime.Token, renewIfDue: false);
         if (check.Confirmed)
@@ -868,16 +961,21 @@ public sealed class AccountsViewModel : ObservableObject
             Status = "Sign in to save a session first.";
             return;
         }
-        var root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "BrowserProfiles", account.Id + "-web");
-        var session = await browser.OpenAsync(new(account.Id, account.Username, root), lifetime.Token);
+        var profile = preferred ?? await ProfileForAsync(account);
+        var session = await browser.OpenAsync(profile, lifetime.Token);
         try
         {
             await session.RestoreCookiesAsync(saved.Cookies, lifetime.Token);
-            await session.NavigateAsync(new Uri("https://www.roblox.com/home"), lifetime.Token);
+            await session.NavigateAsync(address, lifetime.Token);
         }
         catch { await session.DisposeAsync(); throw; }
         openBrowsers[account.Id] = session;
         _ = WatchBrowserAsync(account, session, saved);
+        if (profileRepository is not null)
+        {
+            try { await profileRepository.SaveAsync(profile with { LastUsedAt = DateTimeOffset.UtcNow }); await ReloadProfilesAsync(); }
+            catch (Exception error) { logger.LogWarning("Browser profile history save failed ({ErrorType})", error.GetType().Name); }
+        }
         Status = $"Opened {account.Username} in a private browser.";
     }
     private async Task WatchBrowserAsync(AccountRow account, IBrowserSession session, AccountSession saved)

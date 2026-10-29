@@ -4,26 +4,19 @@ using System.Windows.Threading;
 using Hive.Core;
 namespace Hive.App;
 
-public sealed class NetworkLogWindow : Window
+public sealed class NetworkLogWindow : ToolWindow
 {
-    public NetworkLogWindow(INetworkLog log)
+    public NetworkLogWindow(INetworkLog log) : base("Network log")
     {
         Title = "Hive — Network log";
         Width = 720;
         Height = 430;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var table = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, BorderThickness = new Thickness(0), RowHeight = 32 };
-        table.SetResourceReference(Control.BackgroundProperty, "SurfaceBrush");
-        table.SetResourceReference(Control.ForegroundProperty, "InkBrush");
-        foreach (var column in new[] { ("Time", "At", 140d), ("Service", "Service", 160d), ("Operation", "Operation", 175d), ("Status", "Status", 70d), ("ms", "Milliseconds", 65d) })
-            table.Columns.Add(new DataGridTextColumn { Header = column.Item1, Binding = new System.Windows.Data.Binding(column.Item2) { StringFormat = column.Item2 == "At" ? "{0:HH:mm:ss}" : null }, Width = column.Item3 });
-        var panel = new DockPanel { Margin = new Thickness(18) };
-        var hint = new TextBlock { Text = "Recent requests · no cookies, passwords or tickets", Margin = new Thickness(0, 0, 0, 14) };
-        hint.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-        DockPanel.SetDock(hint, Dock.Top);
-        panel.Children.Add(hint);
+        var table = Table(("Time","At",90),("Service","Service",160),("Operation","Operation",-1),("Status","Status",70),("ms","Milliseconds",60));
+        ((DataGridTextColumn)table.Columns[0]).Binding = new System.Windows.Data.Binding("At") { StringFormat = "{0:HH:mm:ss}" };
+        var panel = new DockPanel();
         panel.Children.Add(table);
-        Content = panel;
+        SetBody(panel);
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         DateTimeOffset latest = default;
         void Update()

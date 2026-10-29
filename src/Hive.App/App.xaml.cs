@@ -32,6 +32,7 @@ public partial class App : Application
              services.AddSingleton<ISecretProtector, DpapiSecretProtector>();
              services.AddSingleton<IAccountRepository, AccountRepository>();
              services.AddSingleton<IAccountGroupRepository, AccountGroupRepository>();
+             services.AddSingleton<IBrowserProfileRepository, BrowserProfileRepository>();
              services.AddSingleton<ISessionStore, SessionStore>();
              services.AddSingleton<AccountOnboardingService>();
              services.AddSingleton<RamImportService>();
@@ -45,6 +46,8 @@ public partial class App : Application
              services.AddSingleton<IInstanceManager, InstanceManager>();
              services.AddSingleton(AppPreferences.Load());
              services.AddSingleton<IGameWindowPreferences>(sp => sp.GetRequiredService<AppPreferences>());
+             services.AddSingleton<ILaunchPolicy>(sp => sp.GetRequiredService<AppPreferences>());
+             services.AddSingleton<IMultiInstanceCoordinator, MultiInstanceCoordinator>();
              services.AddSingleton<IBrowserProvider>(sp => new ConfiguredBrowserProvider(sp.GetRequiredService<AppPreferences>(), context.Configuration["Browser:ExecutablePath"] ?? ""));
              services.AddSingleton<AccountsViewModel>();
              services.AddSingleton<MainWindow>();
@@ -55,6 +58,11 @@ public partial class App : Application
             await host.Services.GetRequiredService<HiveDatabase>().InitializeAsync();
             var vm = host.Services.GetRequiredService<AccountsViewModel>();
             await vm.LoadAsync();
+            if (host.Services.GetRequiredService<AppPreferences>().MultiInstance)
+            {
+                try { host.Services.GetRequiredService<IMultiInstanceCoordinator>().Prepare(); }
+                catch (RobloxLaunchException error) { vm.Status = error.Message; }
+            }
             ThemeManager.Apply(host.Services.GetRequiredService<AppPreferences>());
             host.Services.GetRequiredService<MainWindow>().Show();
         }
