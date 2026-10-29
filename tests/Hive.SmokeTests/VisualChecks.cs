@@ -65,6 +65,19 @@ internal static class VisualChecks
         {
             var add = new AddAccountsWindow(mode, false) { Owner = window };
             add.Show();
+            if (mode == "Credentials")
+            {
+                if (add.FindName("UsernameInput") is not null || add.FindName("PasswordInput") is not null) throw new Exception("Separate credential fields returned");
+                var input = (TextBox)add.FindName("BulkInput");
+                input.Text = "first:test\nsecond:test";
+                add.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+                if (input.VerticalContentAlignment != VerticalAlignment.Top || input.GetRectFromCharacterIndex(0).Top > 25) throw new Exception("Multiline credentials are not top aligned");
+                add.SubmitAsync = () => Task.FromResult(false);
+                ((Button)add.FindName("ContinueButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                // Continue clears its transient parsed data after the operation; validate parsing separately.
+                if (Hive.Core.AccountInputParser.Credentials(input.Text).Count != 2) throw new Exception("Multiline credential parsing failed");
+                input.Clear(); add.SetProgress("");
+            }
             Capture(add, $"artifacts/add-{mode.ToLowerInvariant()}.png");
             add.Close();
             add.ForgetSecrets();

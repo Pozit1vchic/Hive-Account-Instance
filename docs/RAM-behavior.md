@@ -22,13 +22,13 @@ Hive obtains authentication tickets with one CSRF retry and builds encoded Place
 | --- | --- |
 | Manual login / User:Pass / cookies / Custom URL + JS | Implemented with isolated browser contexts and identity verification; user-supplied scripts execute only when explicitly selected |
 | Open an account's browser / profiles | Private context restoration, per-account profile library, rename/reset/archive and last-used metadata implemented |
-| Aliases/descriptions and RAM import | Descriptions editable; imported alias retained; readable JSON import implemented |
+| Aliases/descriptions and RAM import | Descriptions and local aliases editable; readable JSON import implemented |
 | Refresh cookies | Implemented with scheduling, CSRF retry, encrypted replacement and rate-limit throttling |
 | Groups / favorites / saved places | SQLite group management, favorite filter, saved places and current launch target implemented; Roblox presence remains future work |
 | PlaceId/JobId, private servers, follow user | PlaceId/JobId, private invite/access code/share-link resolution and follow-user ID protocol targets implemented; live permissions remain enforced by Roblox |
 | Launch queue, multi-instance, watcher, rejoin | Configurable parallel queue, cancel controls, correlated process watcher, pre-launch singleton coordination and bounded exponential auto-rejoin implemented; process-alive disconnect detection remains future work |
 | Account utilities | Session checks, encrypted database backup, metadata export, redacted Network Log and graceful selected-game closure implemented; official account/security/privacy browser pages added; direct password/email mutations remain interactive |
-| Local API / account control | Not adopted; Hive has no listening web server or custom backend |
+| Local API / account control | Local current-user MCP account status and launch control implemented; no remote phone API yet |
 | Custom script/captcha-service hooks | Explicit Custom URL + JS flow implemented; external captcha-service integration not adopted |
 
 ## Current API reference

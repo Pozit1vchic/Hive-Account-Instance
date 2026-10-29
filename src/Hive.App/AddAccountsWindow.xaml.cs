@@ -52,7 +52,7 @@ public partial class AddAccountsWindow : Window
         };
 
         Closing += (_, e) => { if (submitting) { e.Cancel = true; CancelOperation?.Invoke(); } };
-        Closed += (_, _) => { PasswordInput.Clear(); BulkInput.Clear(); CookiesInput.Clear(); ScriptInput.Clear(); };
+        Closed += (_, _) => { BulkInput.Clear(); CookiesInput.Clear(); ScriptInput.Clear(); };
     }
     private async void Continue(object sender, RoutedEventArgs e)
     {
@@ -61,7 +61,7 @@ public partial class AddAccountsWindow : Window
         try
         {
             if (mode == "Credentials")
-                Credentials = string.IsNullOrWhiteSpace(BulkInput.Text) ? AccountInputParser.Credentials(UsernameInput.Text + ":" + PasswordInput.Password) : AccountInputParser.Credentials(BulkInput.Text);
+                Credentials = AccountInputParser.Credentials(BulkInput.Text);
             else if (mode == "Cookies")
                 Cookies = AccountInputParser.Cookies(CookiesInput.Text);
             else if (mode == "Custom")

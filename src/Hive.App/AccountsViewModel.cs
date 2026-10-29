@@ -66,7 +66,7 @@ public sealed class AccountsViewModel : ObservableObject
     private readonly CancellationTokenSource lifetime = new();
     private readonly AppPreferences preferences; private readonly ILogger<AccountsViewModel> logger;
     private List<AccountRow> all = []; private AccountRow? selected;
-    private string username = "", notes = "", search = "", status = "Ready", processId = ""; private bool busy, settingsOpen;
+    private string username = "", alias = "", notes = "", search = "", status = "Ready", processId = ""; private bool busy, settingsOpen;
     private Task? activeOperation;
     private CancellationTokenSource? loginCancellation;
     public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null, IBrowserProfileRepository? profileRepository = null, IMultiInstanceCoordinator? multiInstance = null, string? profileDirectory = null)
@@ -121,6 +121,7 @@ public sealed class AccountsViewModel : ObservableObject
             else Status = "Operation cancelled.";
         }
         catch (ProcessAssignmentException ex) { Status = ex.Message; }
+        catch (BrowserRateLimitException ex) { Status = ex.Message; }
         catch (RobloxLaunchException ex) { Status = ex.Message; }
         catch (Exception ex) when (HasBrowserConfigurationError(ex)) { Status = "Windows could not start Chromium (14001). Restart Hive to retry its managed browser."; }
         catch (Exception ex) { logger.LogWarning("Account operation failed ({ErrorType})", ex.GetType().Name); Status = ex is System.IO.FileNotFoundException ? "The managed browser is unavailable. Restart Hive to retry setup." : "Could not complete the operation. Check storage access and your connection."; }
@@ -209,6 +210,7 @@ public sealed class AccountsViewModel : ObservableObject
         {
             selected = value;
             Username = value?.Username ?? "";
+            Alias = value?.Data.DisplayName ?? "";
             Notes = value?.Notes ?? "";
             ProcessId = value?.ProcessId?.ToString() ?? "";
             ClearSecrets();
@@ -278,6 +280,7 @@ public sealed class AccountsViewModel : ObservableObject
             Changed();
         }
     }
+    public string Alias { get => alias; set { alias = value; Changed(); } }
     public string Notes
     {
         get => notes; set
@@ -646,7 +649,7 @@ public sealed class AccountsViewModel : ObservableObject
     public int AttentionCount => all.Count(a => a.IsInvalid);
     private void Filter()
     {
-        var matches = all.Where(a => (SelectedGroup is null || a.Data.GroupId == SelectedGroup.Id) && (FilterMode != "Favorites" || a.IsFavorite) && (a.Username.Contains(search, StringComparison.OrdinalIgnoreCase) || a.Notes.Contains(search, StringComparison.OrdinalIgnoreCase)) && (FilterMode != "Running" || a.IsRunning) && (FilterMode != "Attention" || a.IsInvalid)).ToList();
+        var matches = all.Where(a => (SelectedGroup is null || a.Data.GroupId == SelectedGroup.Id) && (FilterMode != "Favorites" || a.IsFavorite) && (a.Username.Contains(search, StringComparison.OrdinalIgnoreCase) || a.Data.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase) || a.Notes.Contains(search, StringComparison.OrdinalIgnoreCase)) && (FilterMode != "Running" || a.IsRunning) && (FilterMode != "Attention" || a.IsInvalid)).ToList();
         if (!Accounts.SequenceEqual(matches))
         {
             Accounts.Clear();
@@ -686,7 +689,7 @@ public sealed class AccountsViewModel : ObservableObject
             Status = "Use Add account to sign in as a different Roblox user.";
             return;
         }
-        var account = new Account(Selected?.Id ?? Guid.NewGuid().ToString("N"), Username.Trim(), Selected?.Data.DisplayName ?? "", Selected?.Data.GroupId, Notes, Selected?.Data.SessionState ?? SessionState.Unknown, Selected?.Data.RobloxUserId);
+        var account = new Account(Selected?.Id ?? Guid.NewGuid().ToString("N"), Username.Trim(), Alias.Trim(), Selected?.Data.GroupId, Notes, Selected?.Data.SessionState ?? SessionState.Unknown, Selected?.Data.RobloxUserId);
         await repository.SaveAsync(account);
         if (PasswordDraft.Length > 0)
             await credentials.SavePasswordAsync(account.Id, PasswordDraft);
@@ -837,12 +840,16 @@ public sealed class AccountsViewModel : ObservableObject
             var profileId = knownProfile?.Id ?? Guid.NewGuid().ToString("N");
             var root = knownProfile?.DirectoryPath ?? System.IO.Path.Combine(ProfileRoot, profileId);
             await using var session = await browser.OpenAsync(new(profileId, "Sign in", root), ct);
-            await session.NavigateAsync(startUrl ?? new Uri("https://www.roblox.com/login"), ct);
-            await session.AcceptCookieConsentAsync(ct);
             if (login is not null)
             {
-                await session.FillLoginAsync(login.Username, login.Password, ct);
-                Status = "Credentials filled. Click Log In in the browser.";
+                await LoginPageLoader.PrepareAsync(session, login, attempt => Status = $"Reloading the sign-in page (attempt {attempt} of 3)...", ct);
+                try { await session.SubmitLoginAsync(ct); Status = "Sign-in submitted. Complete verification in the browser if asked."; }
+                catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning("Automatic sign-in submission unavailable ({ErrorType})", ex.GetType().Name); Status = "Credentials filled. Click Log In in the browser."; }
+            }
+            else
+            {
+                await session.NavigateAsync(startUrl ?? new Uri("https://www.roblox.com/login"), ct);
+                await session.AcceptCookieConsentAsync(ct);
             }
             if (!string.IsNullOrWhiteSpace(script))
                 await session.ExecuteScriptAsync(script, ct);

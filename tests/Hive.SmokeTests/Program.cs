@@ -63,6 +63,12 @@ try
     vm.Search = "hive";
     if (vm.Count != 1)
         throw new Exception("Search failed");
+    vm.Selected = vm.Accounts.Single();
+    vm.Alias = "local-alias";
+    await ((AsyncCommand)vm.SaveCommand).ExecuteAsync();
+    if ((await accounts.GetAllAsync()).Single().DisplayName != "local-alias") throw new Exception("Alias was not saved");
+    vm.Search = "local-alias";
+    if (vm.Count != 1) throw new Exception("Alias search failed");
     await accounts.DeleteAsync(account.Id);
     if ((await accounts.GetAllAsync()).Count != 0 || await sessions.ReadAsync(account.Id) != null)
         throw new Exception("Cascade failed");

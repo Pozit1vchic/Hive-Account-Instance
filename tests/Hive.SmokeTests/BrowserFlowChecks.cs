@@ -40,13 +40,30 @@ internal static class BrowserFlowChecks
             throw new Exception("Application shutdown left a browser open");
         await accounts.DeleteAsync(account.Id);
         provider = new BrowserFixture { CompleteSignIn = true };
+        provider.Session.FailedNavigations = 1;
+        provider.Session.FailedFills = 1;
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), provider, preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
         await vm.AddCredentialsAsync([new("BrowserControl", "local-test-password")]).WaitAsync(TimeSpan.FromSeconds(8));
         var savedAccount = (await accounts.GetAllAsync()).Single();
-        if (vm.LastAddedCount != 1 || provider.Session.FilledUsername != "BrowserControl" || await credentials.ReadPasswordAsync(savedAccount.Id) != "local-test-password")
+        if (vm.LastAddedCount != 1 || provider.Session.NavigateCalls != 3 || provider.Session.FilledUsername != "BrowserControl" || provider.Session.SubmitCalls != 1 || await credentials.ReadPasswordAsync(savedAccount.Id) != "local-test-password")
             throw new Exception("User:Pass confirmation did not reach browser login and encrypted persistence");
         await vm.ShutdownAsync();
         await accounts.DeleteAsync(savedAccount.Id);
+        var brokenPage = new SessionFixture { FailedNavigations = 3 };
+        try { await LoginPageLoader.PrepareAsync(brokenPage, new("local", "test")); throw new Exception("Broken page was accepted"); }
+        catch (BrowserPageLoadException) { }
+        if (brokenPage.NavigateCalls != 3 || brokenPage.SubmitCalls != 0) throw new Exception("Page retries were not bounded before submission");
+        var cancelledPage = new SessionFixture { FailedNavigations = 3 };
+        using (var cancel = new CancellationTokenSource(100))
+        {
+            try { await LoginPageLoader.PrepareAsync(cancelledPage, new("local", "test"), ct: cancel.Token); throw new Exception("Page retry ignored cancellation"); }
+            catch (OperationCanceledException) { }
+        }
+        if (cancelledPage.NavigateCalls != 1) throw new Exception("Cancelled page was reloaded again");
+        var limitedPage = new SessionFixture { RateLimited = true };
+        try { await LoginPageLoader.PrepareAsync(limitedPage, new("local", "test")); throw new Exception("Rate limit was ignored"); }
+        catch (BrowserRateLimitException) { }
+        if (limitedPage.NavigateCalls != 1 || limitedPage.SubmitCalls != 0) throw new Exception("Rate-limited login was retried");
         var parallel = new ParallelBrowsers();
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), parallel, preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
         var batch = vm.AddCredentialsAsync([new("first", "test"), new("second", "test"), new("third", "test")]);
@@ -93,6 +110,12 @@ internal static class BrowserFlowChecks
     private sealed class SessionFixture : IBrowserSession
     {
         public int ConsentCalls { get; private set; }
+        public int SubmitCalls { get; private set; }
+        public int NavigateCalls { get; private set; }
+        public int FailedNavigations { get; set; }
+        public int FailedFills { get; set; }
+        public bool RateLimited { get; set; }
+        public Task SubmitLoginAsync(CancellationToken ct = default) { SubmitCalls++; return Task.CompletedTask; }
         public Task AcceptCookieConsentAsync(CancellationToken ct = default) { ConsentCalls++; return Task.CompletedTask; }
         public bool CompleteSignIn
         {
@@ -104,6 +127,7 @@ internal static class BrowserFlowChecks
         }
         public Task FillLoginAsync(string username, string password, CancellationToken ct = default)
         {
+            if (FailedFills-- > 0) throw new BrowserPageLoadException("Incomplete test form");
             FilledUsername = username;
             return Task.CompletedTask;
         }
@@ -116,6 +140,9 @@ internal static class BrowserFlowChecks
         }
         public Task NavigateAsync(Uri uri, CancellationToken cancellationToken = default)
         {
+            NavigateCalls++;
+            if (RateLimited) throw new BrowserRateLimitException();
+            if (FailedNavigations-- > 0) throw new BrowserPageLoadException("Incomplete test page");
             LastUri = uri;
             Navigated.TrySetResult();
             return Task.CompletedTask;

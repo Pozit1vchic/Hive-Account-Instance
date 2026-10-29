@@ -34,6 +34,9 @@ try
             await session.NavigateAsync(new Uri("https://www.roblox.com/login"));
             if ((await PuppeteerBrowserProvider.OpenPagesAsync(session)).Length != 1)
                 throw new Exception("Repeated navigation opened an extra browser page.");
+            await managedPage.WaitForSelectorAsync("#login-username", new WaitForSelectorOptions { Timeout = 20000 });
+            await managedPage.WaitForSelectorAsync("#login-password", new WaitForSelectorOptions { Timeout = 20000 });
+            await managedPage.WaitForSelectorAsync("#login-button", new WaitForSelectorOptions { Timeout = 20000 });
             await Task.Delay(3000);
             var consentVisible = await managedPage.EvaluateExpressionAsync<bool>("!!document.querySelector('#onetrust-accept-btn-handler')?.getClientRects().length");
             if (consentVisible)
@@ -51,6 +54,11 @@ try
                 Console.WriteLine("PASS: consent button handling on a simulated banner; Roblox did not show its own banner in this session.");
             }
             Console.WriteLine("PASS: Roblox sign-in page opened through Stealth.");
+            await managedPage.SetContentAsync("<html><body><form onsubmit='event.preventDefault(); window.hiveSubmitted = (window.hiveSubmitted || 0) + 1'><input id='login-username'><input id='login-password' type='password'><button id='login-button' type='submit'>Log In</button></form></body></html>");
+            await session.FillLoginAsync("fixture-user", "fixture-password");
+            await session.SubmitLoginAsync();
+            if (!await managedPage.EvaluateExpressionAsync<bool>("window.hiveSubmitted === 1 && document.querySelector('#login-username').value === 'fixture-user' && document.querySelector('#login-password').value === 'fixture-password'")) throw new Exception("Sign-in form was not filled and submitted once.");
+            Console.WriteLine("PASS: sign-in fields and one automatic submission on a simulated form (no real account credentials).");
         }
         Console.WriteLine("PASS: PuppeteerSharp + StealthPlugin launch, isolated context, navigation, cookie restore/read.");
     }

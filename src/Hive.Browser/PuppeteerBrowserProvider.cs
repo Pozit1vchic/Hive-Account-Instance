@@ -76,17 +76,52 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
                     }
                 }).WaitAsync(cancellationToken);
             }
-            await page.GoToAsync(uri.AbsoluteUri, new NavigationOptions { WaitUntil = [WaitUntilNavigation.DOMContentLoaded], Timeout = 60000 }).WaitAsync(cancellationToken);
+            try
+            {
+                var response = await page.GoToAsync(uri.AbsoluteUri, new NavigationOptions { WaitUntil = [WaitUntilNavigation.DOMContentLoaded], Timeout = 60000 }).WaitAsync(cancellationToken);
+                if ((uri.Host == "www.roblox.com" || uri.Host == "roblox.com") && uri.AbsolutePath == "/login" && response is not null)
+                {
+                    if ((int)response.Status == 429) throw new BrowserRateLimitException();
+                    if ((int)response.Status >= 500) throw new BrowserPageLoadException("Roblox sign-in is temporarily unavailable.");
+                }
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is PuppeteerException or TimeoutException) { throw new BrowserPageLoadException("The browser page did not finish loading.", ex); }
         }
         public async Task FillLoginAsync(string username, string password, CancellationToken ct = default)
         {
             var page = currentPage ?? throw new InvalidOperationException("Navigate before filling sign-in.");
             if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com") || !address.AbsolutePath.StartsWith("/login", StringComparison.Ordinal))
                 throw new InvalidOperationException("Credentials can only be filled on Roblox sign-in.");
-            await page.WaitForSelectorAsync("#login-username", new WaitForSelectorOptions { Timeout = 20000 }).WaitAsync(ct);
-            await page.TypeAsync("#login-username", username).WaitAsync(ct);
-            await page.TypeAsync("#login-password", password).WaitAsync(ct);
-            // Leave the final submit and any verification to the person using the browser.
+            try
+            {
+                await page.WaitForSelectorAsync("#login-username", new WaitForSelectorOptions { Timeout = 20000 }).WaitAsync(ct);
+                await page.WaitForSelectorAsync("#login-password", new WaitForSelectorOptions { Timeout = 20000 }).WaitAsync(ct);
+                await page.TypeAsync("#login-username", username).WaitAsync(ct);
+                await page.TypeAsync("#login-password", password).WaitAsync(ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is PuppeteerException or TimeoutException) { throw new BrowserPageLoadException("The sign-in form did not finish loading.", ex); }
+        }
+        public async Task SubmitLoginAsync(CancellationToken ct = default)
+        {
+            var page = currentPage ?? throw new InvalidOperationException("Navigate before submitting sign-in.");
+            if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com") || !address.AbsolutePath.StartsWith("/login", StringComparison.Ordinal))
+                throw new InvalidOperationException("Sign-in can only be submitted on Roblox.");
+            await page.WaitForSelectorAsync("#login-button:not([disabled])", new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
+            for (var attempt = 0; attempt < 40; attempt++)
+            {
+                await AcceptCookieConsentAsync(ct);
+                var unobstructed = await page.EvaluateExpressionAsync<bool>(@"(() => {
+                    const button = document.querySelector('#login-button:not([disabled])');
+                    if (!button) return false;
+                    button.scrollIntoView({ block: 'center' });
+                    const r = button.getBoundingClientRect();
+                    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                    return !!top && (top === button || button.contains(top));
+                })()").WaitAsync(ct);
+                if (unobstructed) { await page.ClickAsync("#login-button").WaitAsync(ct); return; }
+                await Task.Delay(250, ct);
+            }
+            throw new TimeoutException("Sign-in button is covered. Complete sign-in in the browser.");
         }
         public async Task AcceptCookieConsentAsync(CancellationToken ct = default)
         {

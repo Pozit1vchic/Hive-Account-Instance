@@ -20,6 +20,8 @@ public interface IBrowserProvider
 {
     Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default);
 }
+public sealed class BrowserPageLoadException(string message, Exception? inner = null) : Exception(message, inner);
+public sealed class BrowserRateLimitException() : Exception("Roblox temporarily limited sign-in. Try again later.");
 public interface IBrowserSession : IAsyncDisposable
 {
     bool IsOpen
@@ -27,6 +29,7 @@ public interface IBrowserSession : IAsyncDisposable
         get;
     }
     Task FillLoginAsync(string username, string password, CancellationToken ct = default) => throw new NotSupportedException();
+    Task SubmitLoginAsync(CancellationToken ct = default) => throw new NotSupportedException();
     Task AcceptCookieConsentAsync(CancellationToken ct = default) => Task.CompletedTask;
     Task ExecuteScriptAsync(string script, CancellationToken ct = default) => throw new NotSupportedException();
     Task RestoreCookiesAsync(IReadOnlyList<SessionCookie> cookies, CancellationToken cancellationToken = default); Task NavigateAsync(Uri uri, CancellationToken cancellationToken = default); Task<IReadOnlyList<SessionCookie>> ReadCookiesAsync(CancellationToken cancellationToken = default);
