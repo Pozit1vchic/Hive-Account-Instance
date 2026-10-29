@@ -22,7 +22,7 @@ public sealed class ConfiguredBrowserProvider(AppPreferences preferences, string
             catch (System.Text.Json.JsonException) { }
             catch (IOException) { }
         }
-        var candidates = new[]{preferences.BrowserPath,configuredPath,managed,
+        var candidates = new[]{managed,configuredPath,preferences.BrowserPath,
    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Google","Chrome","Application","chrome.exe"),
    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),"Microsoft","Edge","Application","msedge.exe"),
    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Google","Chrome","Application","chrome.exe")};

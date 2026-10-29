@@ -49,7 +49,7 @@ internal static class BrowserFlowChecks
         await accounts.DeleteAsync(savedAccount.Id);
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
         await vm.AddCredentialsAsync([new("BrowserControl", "local-test-password")]);
-        if (vm.IsBusy || vm.LastAddedCount != 0 || !vm.Status.Contains("Settings > Browser") || (await accounts.GetAllAsync()).Count != 0)
+        if (vm.IsBusy || vm.LastAddedCount != 0 || !vm.Status.Contains("managed browser") || (await accounts.GetAllAsync()).Count != 0)
             throw new Exception("Unavailable browser was not reported without adding a phantom account");
         await vm.ShutdownAsync();
         Console.WriteLine("PASS: browser onboarding cancellation, saved-session restoration, nonblocking managed browser opening and shutdown cleanup (provider fixture).");

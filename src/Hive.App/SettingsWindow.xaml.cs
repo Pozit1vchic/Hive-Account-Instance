@@ -25,12 +25,6 @@ public partial class SettingsWindow : Window
     }
     private void SelectTheme(object sender, RoutedEventArgs e) => model.DarkTheme = ((Button)sender).Tag?.ToString() == "Dusk";
     private void SelectAccent(object sender, RoutedEventArgs e) => model.Accent = ((Button)sender).Tag?.ToString() ?? "Honey";
-    private void ChooseBrowser(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Title = "Choose a Chromium browser", Filter = "Browser executable (*.exe)|*.exe" };
-        if (dialog.ShowDialog(this) == true)
-            model.BrowserPath = dialog.FileName;
-    }
     private void OpenDataFolder(object sender, RoutedEventArgs e)
     {
         var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive");

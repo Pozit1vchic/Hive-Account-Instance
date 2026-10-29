@@ -3,8 +3,9 @@ using System.Text.Json;
 using Hive.Core;
 namespace Hive.Roblox;
 
-public sealed class SessionManager(ISessionStore sessions, IAccountRepository accounts, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null) : ISessionManager, IRobloxLaunchBroker
+public sealed class SessionManager(ISessionStore sessions, IAccountRepository accounts, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null) : ISessionManager, IRobloxLaunchBroker
 {
+    private DateTimeOffset checksPausedUntil;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> renewalAttempts = [];
     private static readonly Uri RefreshUri = new("https://auth.roblox.com/v2/session/refresh");
@@ -43,6 +44,8 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
     }
     private async Task<SessionCheck> ValidateCoreAsync(Account account, AccountSession session, bool markInvalid, CancellationToken ct, bool renewIfDue)
     {
+        if (DateTimeOffset.UtcNow < checksPausedUntil)
+            return new(account.SessionState, false, "Roblox limited checks. Retrying later.");
         var token = session.Cookies.FirstOrDefault(c => c.Name == ".ROBLOSECURITY" && (c.Domain == ".roblox.com" || c.Domain == "roblox.com"));
         if (token is null || (token.Expires is > 0 && token.Expires <= DateTimeOffset.UtcNow.ToUnixTimeSeconds()))
             return markInvalid ? await MarkAsync(account.Id, SessionState.ReauthenticationRequired, "Session expired. Sign in again.", ct) : new(SessionState.Unknown, false, "Waiting for a Roblox session in the browser.");
@@ -53,9 +56,13 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
         jar.Add(authenticationCookie);
         using var handler = handlerFactory?.Invoke(jar) ?? new HttpClientHandler { CookieContainer = jar, UseCookies = true, AllowAutoRedirect = false };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+        var requestStart = System.Diagnostics.Stopwatch.GetTimestamp();
         using var response = await client.GetAsync(IdentityUri, ct);
+        networkLog?.Record(new(DateTimeOffset.UtcNow, IdentityUri.Host, "Session check", (int)response.StatusCode, (long)System.Diagnostics.Stopwatch.GetElapsedTime(requestStart).TotalMilliseconds));
         if (response.StatusCode == HttpStatusCode.Unauthorized)
             return markInvalid ? await MarkAsync(account.Id, SessionState.ReauthenticationRequired, "Session is no longer valid. Sign in again.", ct) : new(SessionState.Unknown, false, "Waiting for sign-in to finish.");
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            checksPausedUntil = DateTimeOffset.UtcNow.AddMinutes(5);
         if (!response.IsSuccessStatusCode)
             return new(account.SessionState, false, $"Roblox is temporarily unavailable ({(int)response.StatusCode}). Retrying later.");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
@@ -72,7 +79,9 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
         if (renewIfDue && due && !throttled)
         {
             renewalAttempts[account.Id] = now;
+            var renewalStart = System.Diagnostics.Stopwatch.GetTimestamp();
             using var refresh = await RefreshAsync(client, ct);
+            networkLog?.Record(new(DateTimeOffset.UtcNow, RefreshUri.Host, "Session renewal", (int)refresh.StatusCode, (long)System.Diagnostics.Stopwatch.GetElapsedTime(renewalStart).TotalMilliseconds));
             if (refresh.StatusCode == HttpStatusCode.Unauthorized)
                 return await MarkAsync(account.Id, SessionState.ReauthenticationRequired, "Session renewal was rejected. Sign in again.", ct);
             if (!refresh.IsSuccessStatusCode)
@@ -137,11 +146,15 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
             async Task<HttpResponseMessage> RequestTicket(string? csrf)
             {
                 using var message = new HttpRequestMessage(HttpMethod.Post, "https://auth.roblox.com/v1/authentication-ticket/");
-                message.Headers.Referrer = new Uri("https://www.roblox.com/");
+                message.Content = new System.Net.Http.StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+                message.Headers.Referrer = new Uri($"https://www.roblox.com/games/{request.PlaceId}/");
                 message.Headers.TryAddWithoutValidation("RBXAuthenticationNegotiation", "1");
                 if (csrf is not null)
                     message.Headers.TryAddWithoutValidation("x-csrf-token", csrf);
-                return await client.SendAsync(message, ct);
+                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                var result = await client.SendAsync(message, ct);
+                networkLog?.Record(new(DateTimeOffset.UtcNow, "auth.roblox.com", "Launch ticket", (int)result.StatusCode, (long)System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds));
+                return result;
             }
             var response = await RequestTicket(null);
             if (response.StatusCode == HttpStatusCode.Forbidden && response.Headers.TryGetValues("x-csrf-token", out var csrfValues))
@@ -160,8 +173,12 @@ public sealed class SessionManager(ISessionStore sessions, IAccountRepository ac
                 }
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
                     throw new RobloxLaunchException("Roblox is rate limiting launches. Try again later.");
-                if (!response.IsSuccessStatusCode || !response.Headers.TryGetValues("rbx-authentication-ticket", out var tickets))
-                    throw new RobloxLaunchException("Roblox did not authorize the launch. Sign in again if verification is required.");
+                if (response.StatusCode == HttpStatusCode.Forbidden)
+                    throw new RobloxLaunchException("Roblox blocked the launch (403). Open the account browser and complete any verification.");
+                if (!response.IsSuccessStatusCode)
+                    throw new RobloxLaunchException($"Roblox rejected the launch request (HTTP {(int)response.StatusCode}). Try again later.");
+                if (!response.Headers.TryGetValues("rbx-authentication-ticket", out var tickets))
+                    throw new RobloxLaunchException("Roblox did not return a launch ticket. Try again or sign in again.");
                 var ticket = tickets.FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(ticket) || ticket.Any(char.IsWhiteSpace))
                     throw new RobloxLaunchException("Roblox returned an invalid launch ticket.");

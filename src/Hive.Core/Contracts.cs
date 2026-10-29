@@ -57,3 +57,25 @@ public interface IAccountActivityTracker
 public sealed record SessionCheck(SessionState State, bool Confirmed, string Message);
 
 public sealed class ProcessAssignmentException(string message) : Exception(message);
+
+public interface IGameWindowPreferences
+{
+    bool CompactGameWindows
+    {
+        get;
+    }
+}
+
+public interface IAccountGroupRepository
+{
+    Task<IReadOnlyList<AccountGroup>> GetAllAsync(CancellationToken ct = default);
+    Task SaveAsync(AccountGroup group, CancellationToken ct = default);
+    Task DeleteAsync(string id, CancellationToken ct = default);
+}
+
+public sealed record NetworkEvent(DateTimeOffset At, string Service, string Operation, int Status, long Milliseconds);
+public interface INetworkLog
+{
+    void Record(NetworkEvent entry);
+    IReadOnlyList<NetworkEvent> Snapshot();
+}

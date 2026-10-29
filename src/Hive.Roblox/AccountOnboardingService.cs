@@ -3,7 +3,7 @@ using System.Text.Json;
 using Hive.Core;
 namespace Hive.Roblox;
 
-public sealed class AccountOnboardingService(IAccountRepository accounts, ISessionStore sessions, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null)
+public sealed class AccountOnboardingService(IAccountRepository accounts, ISessionStore sessions, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null)
 {
     public async Task<RobloxIdentity?> IdentifyAsync(AccountSession session, CancellationToken ct = default) => (await IdentifyCoreAsync(session, ct))?.Identity;
     private async Task<(RobloxIdentity Identity, AccountSession Session)?> IdentifyCoreAsync(AccountSession session, CancellationToken ct)
@@ -18,7 +18,9 @@ public sealed class AccountOnboardingService(IAccountRepository accounts, ISessi
         jar.Add(authenticationCookie);
         using var handler = handlerFactory?.Invoke(jar) ?? new HttpClientHandler { CookieContainer = jar, AllowAutoRedirect = false };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
         using var response = await client.GetAsync("https://users.roblox.com/v1/users/authenticated", ct);
+        networkLog?.Record(new(DateTimeOffset.UtcNow, "users.roblox.com", "Account verification", (int)response.StatusCode, (long)System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds));
         if (response.StatusCode == HttpStatusCode.Unauthorized)
             return null;
         response.EnsureSuccessStatusCode();

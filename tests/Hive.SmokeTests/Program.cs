@@ -11,6 +11,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Data.Sqlite;
 using Dapper;
 
+if (args.Length == 2 && args[0] == "--verify-persistence")
+{
+    await PersistenceChecks.VerifyChildAsync(args[1]);
+    return;
+}
 var folder = Path.Combine(Path.GetTempPath(), "Hive-Smoke-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(folder);
 try
@@ -64,6 +69,7 @@ try
     Console.WriteLine("PASS: migrations, CRUD, uniqueness, search, DPAPI encryption, session roundtrip, cascade deletion.");
     await SecurityChecks.RunAsync(database, accounts, sessions, folder);
     await FeatureChecks.RunAsync(database, accounts, sessions);
+    await PersistenceChecks.RunAsync(folder);
     await BrowserFlowChecks.RunAsync(database, accounts, sessions, folder);
     await LaunchChecks.RunAsync(accounts, sessions);
     Exception? renderError = null;

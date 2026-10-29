@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Xml.Linq;
+using System.Globalization;
 namespace Hive.App;
 // The bundled SVGs use a deliberately small, auditable subset: a 24x24 viewBox and stroked paths.
 public sealed class SvgIcon : FrameworkElement
@@ -17,6 +18,20 @@ public sealed class SvgIcon : FrameworkElement
     {
         get => (Brush)GetValue(ForegroundProperty); set => SetValue(ForegroundProperty, value);
     }
+    private static Geometry? ParseShape(XElement shape)
+    {
+        double N(string name, double fallback = 0) => double.TryParse(shape.Attribute(name)?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : fallback;
+        return shape.Name.LocalName switch
+        {
+            "path" => Geometry.Parse(shape.Attribute("d")!.Value),
+            "circle" => new EllipseGeometry(new Point(N("cx"), N("cy")), N("r"), N("r")),
+            "ellipse" => new EllipseGeometry(new Point(N("cx"), N("cy")), N("rx"), N("ry")),
+            "rect" => new RectangleGeometry(new Rect(N("x"), N("y"), N("width"), N("height")), N("rx"), N("ry", N("rx"))),
+            "line" => new LineGeometry(new Point(N("x1"), N("y1")), new Point(N("x2"), N("y2"))),
+            "polyline" or "polygon" => Geometry.Parse("M" + shape.Attribute("points")!.Value + (shape.Name.LocalName == "polygon" ? "Z" : "")),
+            _ => null
+        };
+    }
     protected override Size MeasureOverride(Size availableSize) => new(18, 18);
     protected override void OnRender(DrawingContext context)
     {
@@ -28,13 +43,13 @@ public sealed class SvgIcon : FrameworkElement
             var resource = Application.GetResourceStream(new Uri($"/Hive.App;component/Assets/Icons/{NameKey}.svg", UriKind.Relative)) ?? throw new InvalidOperationException("Unknown SVG icon.");
             using var stream = resource.Stream;
             var document = XDocument.Load(stream);
-            geometries = document.Descendants().Where(e => e.Name.LocalName == "path").Select(e => Geometry.Parse(e.Attribute("d")!.Value)).ToArray();
+            geometries = document.Descendants().Select(ParseShape).OfType<Geometry>().ToArray();
             foreach (var geometry in geometries)
                 geometry.Freeze();
             Cache.Add(NameKey, geometries);
         }
         var scale = Math.Min(ActualWidth, ActualHeight) / 24;
-        var pen = new Pen(Foreground, 1.7) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+        var pen = new Pen(Foreground, 1.8) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
         context.PushTransform(new TranslateTransform((ActualWidth - 24 * scale) / 2, (ActualHeight - 24 * scale) / 2));
         context.PushTransform(new ScaleTransform(scale, scale));
         foreach (var geometry in geometries)

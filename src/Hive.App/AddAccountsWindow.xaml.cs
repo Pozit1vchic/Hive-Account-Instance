@@ -14,7 +14,11 @@ public partial class AddAccountsWindow : Window
     {
         get; set;
     }
-    public void SetProgress(string message) => ErrorText.Text = message;
+    public void SetProgress(string message, bool error = false)
+    {
+        ErrorText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, error ? "RedBrush" : "MutedBrush");
+        ErrorText.Text = message;
+    }
     public IReadOnlyList<LoginCredential> Credentials { get; private set; } = [];
     public IReadOnlyList<string> Cookies { get; private set; } = [];
     public Uri? StartUrl
@@ -39,7 +43,14 @@ public partial class AddAccountsWindow : Window
             "Cookies" => "Add with cookies",
             _ => "Custom browser flow"
         };
-        Hint.Text = mode == "Manual" ? "Sign in to Roblox in a private browser. Hive saves the verified session locally." : mode == "Credentials" ? "Roblox sign-in happens in the browser. Complete any verification when prompted." : mode == "Cookies" ? "Import verified sessions without opening a sign-in window." : "Choose a starting page and an optional script.";
+        Hint.Text = mode switch
+        {
+            "Credentials" => "Complete verification in the browser if asked.",
+            "Cookies" => "One session cookie per line.",
+            "Custom" => "Run a custom sign-in flow.",
+            _ => "Sign in on Roblox."
+        };
+
         Closing += (_, e) => { if (submitting) { e.Cancel = true; CancelOperation?.Invoke(); } };
         Closed += (_, _) => { PasswordInput.Clear(); BulkInput.Clear(); CookiesInput.Clear(); ScriptInput.Clear(); };
     }
@@ -69,14 +80,14 @@ public partial class AddAccountsWindow : Window
             ContinueButton.IsEnabled = false;
             InputPanels.IsEnabled = false;
             CancelButton.Content = "Cancel operation";
-            ErrorText.Text = "Starting account addition...";
+            SetProgress("Opening browser...");
             var success = await SubmitAsync();
             submitting = false;
             if (success)
                 DialogResult = true;
         }
-        catch (FormatException ex) { ErrorText.Text = ex.Message; }
-        catch (Exception) { ErrorText.Text = "Account addition failed. Check the browser configuration and connection, then try again."; }
+        catch (FormatException ex) { SetProgress(ex.Message, true); }
+        catch (Exception) { SetProgress("Could not add the account. Try again.", true); }
         finally
         {
             submitting = false;

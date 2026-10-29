@@ -4,16 +4,26 @@ namespace Hive.Storage;
 
 public sealed class HiveDatabase(string path)
 {
+    public string DatabasePath { get; } = Path.GetFullPath(path);
     public async Task<SqliteConnection> OpenAsync(CancellationToken ct = default)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, ForeignKeys = true }.ToString());
+        Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath)!);
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = DatabasePath, ForeignKeys = true, DefaultTimeout = 15 }.ToString());
         try
         {
             await connection.OpenAsync(ct);
             return connection;
         }
         catch { await connection.DisposeAsync(); throw; }
+    }
+    public async Task BackupAsync(string destination, CancellationToken ct = default)
+    {
+        if (Path.GetFullPath(destination).Equals(DatabasePath, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Choose a different backup file.");
+        await using var source = await OpenAsync(ct);
+        await using var target = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.GetFullPath(destination) }.ToString());
+        await target.OpenAsync(ct);
+        source.BackupDatabase(target);
     }
     public async Task InitializeAsync(CancellationToken ct = default)
     {

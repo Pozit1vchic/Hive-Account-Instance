@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 namespace Hive.App;
 
 public static class ThemeManager
@@ -10,15 +11,34 @@ public static class ThemeManager
             return;
         var resources = Application.Current.Resources;
         var dark = preferences.DarkTheme;
-        void Set(string key, string hex) => resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
-        Set("CanvasBrush", dark ? "#151620" : "#F4F5F8");
-        Set("SurfaceBrush", dark ? "#222331" : "#FFFFFF");
-        Set("SubtleBrush", dark ? "#2A2C3B" : "#F8F9FC");
-        Set("InputBrush", dark ? "#1B1C29" : "#FCFCFE");
+        var animate = preferences.AnimationsEnabled && SystemParameters.ClientAreaAnimation;
+        void Set(string key, string hex)
+        {
+            var next = (Color)ColorConverter.ConvertFromString(hex);
+            if (resources[key] is SolidColorBrush current && !current.IsFrozen)
+            {
+                var previous = current.Color;
+                current.BeginAnimation(SolidColorBrush.ColorProperty, null);
+                current.Color = next;
+                if (animate && previous != next)
+                    current.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(previous, next, TimeSpan.FromMilliseconds(180)) { FillBehavior = FillBehavior.Stop });
+            }
+            else
+                resources[key] = new SolidColorBrush(next);
+        }
+        Set("CanvasBrush", dark ? "#151923" : "#F4F6FA");
+        Set("SurfaceBrush", dark ? "#212838" : "#FFFFFF");
+        Set("SubtleBrush", dark ? "#293347" : "#F6F8FC");
+        Set("InputBrush", dark ? "#191F2D" : "#FAFBFE");
         Set("InkBrush", dark ? "#F0EDF8" : "#29313F");
         Set("MutedBrush", dark ? "#A8A7BD" : "#828896");
-        Set("LineBrush", dark ? "#383A4D" : "#E7E9F0");
-        Set("SelectedBrush", dark ? "#3C3442" : "#FFF4DD");
+        Set("LineBrush", dark ? "#354258" : "#E1E6EF");
+        Set("SelectedBrush", preferences.Accent switch
+        {
+            "Iris" => dark ? "#3A3554" : "#EFEAFB",
+            "Ocean" => dark ? "#253F4B" : "#E4F3F6",
+            _ => dark ? "#443B2C" : "#FFF3DC"
+        });
         Set("GreenBrush", dark ? "#7ADBAA" : "#25885D");
         Set("RedBrush", dark ? "#F699A0" : "#C6505C");
         var colors = preferences.Accent switch

@@ -15,6 +15,10 @@ public abstract class ObservableObject : INotifyPropertyChanged
 }
 public sealed class AccountRow(Account data) : ObservableObject
 {
+    public bool IsFavorite
+    {
+        get; set;
+    }
     public Account Data { get; private set; } = data;
     public string Id => Data.Id; public string Username => Data.Username; public string Notes => Data.Notes;
     private string passwordText = "—"; public string PasswordText
@@ -51,6 +55,7 @@ public sealed class AccountRow(Account data) : ObservableObject
 public sealed class AccountsViewModel : ObservableObject
 {
     private readonly IInstanceManager? instances;
+    private readonly IAccountGroupRepository? groupRepository;
     private readonly IAccountRepository repository; private readonly ICredentialStore credentials;
     private readonly SessionManager sessions; private readonly IAccountActivityTracker tracker; private readonly IBrowserProvider browser;
     private readonly AccountOnboardingService? onboarding; private readonly ISessionStore? sessionStore;
@@ -61,8 +66,9 @@ public sealed class AccountsViewModel : ObservableObject
     private string username = "", notes = "", search = "", status = "Ready", processId = ""; private bool busy, settingsOpen;
     private Task? activeOperation;
     private CancellationTokenSource? loginCancellation;
-    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null)
+    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null)
     {
+        this.groupRepository = groupRepository;
         this.instances = instances;
         this.onboarding = onboarding;
         this.sessionStore = sessionStore;
@@ -72,6 +78,8 @@ public sealed class AccountsViewModel : ObservableObject
         this.tracker = tracker;
         this.browser = browser;
         this.preferences = preferences;
+        placeId = preferences.PlaceId;
+        jobId = preferences.JobId;
         this.logger = logger;
         SaveCommand = Command(SaveAsync);
         DeleteCommand = Command(DeleteAsync);
@@ -79,9 +87,9 @@ public sealed class AccountsViewModel : ObservableObject
         LaunchCommand = Command(LaunchSelectedAsync);
         AddBrowserCommand = Command(() => AuthenticateAsync(null));
         OpenBrowserCommand = Command(OpenBrowserAsync);
-        AllFilterCommand = Command(() => { FilterMode = "All"; return Task.CompletedTask; });
-        RunningFilterCommand = Command(() => { FilterMode = "Running"; return Task.CompletedTask; });
-        AttentionFilterCommand = Command(() => { FilterMode = "Attention"; return Task.CompletedTask; });
+        AllFilterCommand = new AsyncCommand(() => { SelectedGroup = null; FilterMode = "All"; return Task.CompletedTask; });
+        RunningFilterCommand = new AsyncCommand(() => { FilterMode = "Running"; return Task.CompletedTask; });
+        AttentionFilterCommand = new AsyncCommand(() => { FilterMode = "Attention"; return Task.CompletedTask; });
         CheckCommand = Command(() => CheckSessionsAsync(true));
         SignInCommand = Command(SignInAsync);
         ImportCookieCommand = Command(ImportCookieAsync);
@@ -101,11 +109,15 @@ public sealed class AccountsViewModel : ObservableObject
             activeOperation = action();
             await activeOperation;
         }
-        catch (OperationCanceledException) { Status = "Operation cancelled."; }
+        catch (OperationCanceledException)
+        {
+            if (LastAddedCount > 0) { SelectedGroup = null; Search = ""; FilterMode = "All"; await LoadAsync(); Status = $"Saved {LastAddedCount} accounts; remaining addition cancelled."; }
+            else Status = "Operation cancelled.";
+        }
         catch (ProcessAssignmentException ex) { Status = ex.Message; }
         catch (RobloxLaunchException ex) { Status = ex.Message; }
-        catch (Exception ex) when (HasBrowserConfigurationError(ex)) { Status = "Windows could not start Chromium (14001). Choose another installed Chrome or Edge in Settings > Browser."; }
-        catch (Exception ex) { logger.LogWarning("Account operation failed ({ErrorType})", ex.GetType().Name); Status = ex is System.IO.FileNotFoundException ? "Choose a Chrome or Edge executable in Settings > Browser." : "Could not complete the operation. Check storage access and your connection."; }
+        catch (Exception ex) when (HasBrowserConfigurationError(ex)) { Status = "Windows could not start Chromium (14001). Restart Hive to retry its managed browser."; }
+        catch (Exception ex) { logger.LogWarning("Account operation failed ({ErrorType})", ex.GetType().Name); Status = ex is System.IO.FileNotFoundException ? "The managed browser is unavailable. Restart Hive to retry setup." : "Could not complete the operation. Check storage access and your connection."; }
         finally { activeOperation = null; IsBusy = false; }
     }
     private static bool HasBrowserConfigurationError(Exception error)
@@ -208,16 +220,24 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => placeId; set
         {
+            if (placeId == value)
+                return;
             placeId = value;
+            preferences.PlaceId = value;
             Changed();
+            SavePreferences();
         }
     }
     public string JobId
     {
         get => jobId; set
         {
+            if (jobId == value)
+                return;
             jobId = value;
+            preferences.JobId = value;
             Changed();
+            SavePreferences();
         }
     }
     public string LaunchStatus
@@ -302,6 +322,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.DarkTheme; set
         {
+            if (preferences.DarkTheme == value)
+                return;
             preferences.DarkTheme = value;
             Changed();
             SavePreferences();
@@ -312,6 +334,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.Accent; set
         {
+            if (preferences.Accent == value)
+                return;
             preferences.Accent = value;
             Changed();
             SavePreferences();
@@ -322,6 +346,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.AnimationsEnabled; set
         {
+            if (preferences.AnimationsEnabled == value)
+                return;
             preferences.AnimationsEnabled = value;
             Changed();
             Changed(nameof(EffectiveMotion));
@@ -333,6 +359,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.CompactRows; set
         {
+            if (preferences.CompactRows == value)
+                return;
             preferences.CompactRows = value;
             Changed();
             Changed(nameof(TableRowHeight));
@@ -352,6 +380,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.ShowPasswords; set
         {
+            if (preferences.ShowPasswords == value)
+                return;
             preferences.ShowPasswords = value;
             Changed();
             SavePreferences();
@@ -361,10 +391,24 @@ public sealed class AccountsViewModel : ObservableObject
             _ = RefreshPasswordsAsync();
         }
     }
+    public bool CompactGameWindows
+    {
+        get => preferences.CompactGameWindows;
+        set
+        {
+            if (preferences.CompactGameWindows == value)
+                return;
+            preferences.CompactGameWindows = value;
+            Changed();
+            SavePreferences();
+        }
+    }
     public bool AutoCheckSessions
     {
         get => preferences.AutoCheckSessions; set
         {
+            if (preferences.AutoCheckSessions == value)
+                return;
             preferences.AutoCheckSessions = value;
             Changed();
             SavePreferences();
@@ -374,6 +418,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.AutoRenewSessions; set
         {
+            if (preferences.AutoRenewSessions == value)
+                return;
             preferences.AutoRenewSessions = value;
             Changed();
             SavePreferences();
@@ -383,6 +429,8 @@ public sealed class AccountsViewModel : ObservableObject
     {
         get => preferences.BrowserPath; set
         {
+            if (preferences.BrowserPath == value)
+                return;
             preferences.BrowserPath = value;
             Changed();
             SavePreferences();
@@ -404,10 +452,16 @@ public sealed class AccountsViewModel : ObservableObject
     public async Task LoadAsync()
     {
         var id = Selected?.Id;
-        all = (await repository.GetAllAsync()).Select(a => new AccountRow(a)).ToList();
+        all = (await repository.GetAllAsync()).Select(a => new AccountRow(a) { IsFavorite = preferences.FavoriteAccounts.Contains(a.Id) }).ToList();
+        if (groupRepository is not null)
+        {
+            Groups.Clear();
+            foreach (var group in await groupRepository.GetAllAsync())
+                Groups.Add(group);
+        }
         await RefreshPasswordsAsync();
         Filter();
-        Selected = Accounts.FirstOrDefault(a => a.Id == id);
+        Selected = Accounts.FirstOrDefault(a => a.Id == id) ?? Accounts.FirstOrDefault();
         RefreshActivity();
     }
     public async Task RefreshPasswordsAsync()
@@ -434,12 +488,129 @@ public sealed class AccountsViewModel : ObservableObject
             Filter();
         }
     }
+    public Task CloseGamesAsync(IReadOnlyList<string> ids) => RunAsync(() =>
+    {
+        if (ids.Count == 0)
+            return Task.CompletedTask;
+        if (System.Windows.MessageBox.Show("Close the games linked to the selected accounts?", "Hive", System.Windows.MessageBoxButton.YesNo) != System.Windows.MessageBoxResult.Yes)
+            return Task.CompletedTask;
+        var closed = 0;
+        foreach (var id in ids)
+        {
+            if (tracker.GetLiveProcessId(id) is not int pid)
+                continue;
+            try
+            {
+                using var process = System.Diagnostics.Process.GetProcessById(pid);
+                if (process.CloseMainWindow())
+                    closed++;
+            }
+            catch (ArgumentException) { }
+            catch (InvalidOperationException) { }
+        }
+        Status = $"Requested closure of {closed} games.";
+        return Task.CompletedTask;
+    });
+    public ObservableCollection<AccountGroup> Groups { get; } = [];
+    private AccountGroup? selectedGroup;
+    public AccountGroup? SelectedGroup
+    {
+        get => selectedGroup; set
+        {
+            selectedGroup = value;
+            Changed();
+            Changed(nameof(GroupLabel));
+            Filter();
+        }
+    }
+    public string GroupLabel => SelectedGroup?.Name ?? "Groups";
+    public IReadOnlyList<SavedPlace> SavedPlaces => preferences.SavedPlaces;
+    public void SaveCurrentPlace()
+    {
+        if (!long.TryParse(PlaceId, out var place) || place <= 0 || (!string.IsNullOrWhiteSpace(JobId) && !Guid.TryParse(JobId, out _)))
+        {
+            Status = "Enter a valid Place ID and optional Job ID.";
+            return;
+        }
+        var saved = new SavedPlace(PlaceId.Trim(), JobId.Trim());
+        if (!preferences.SavedPlaces.Contains(saved))
+            preferences.SavedPlaces.Add(saved);
+        SavePreferences();
+        Status = "Place saved.";
+    }
+    public Task CreateGroupAsync(string name) => RunAsync(async () =>
+    {
+        if (groupRepository is null)
+            return;
+        if (Groups.Any(g => g.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = "A group with this name already exists.";
+            return;
+        }
+        var group = new AccountGroup(Guid.NewGuid().ToString("N"), name.Trim());
+        await groupRepository.SaveAsync(group);
+        await LoadAsync();
+        SelectedGroup = group;
+    });
+    public Task MoveToGroupAsync(string? groupId, IReadOnlyList<string> ids) => RunAsync(async () =>
+    {
+        foreach (var row in all.Where(a => ids.Contains(a.Id)).ToList())
+            await repository.SaveAsync(row.Data with
+            {
+                GroupId = groupId
+            });
+        await LoadAsync();
+        Status = "Group updated.";
+    });
+    public Task DeleteSelectedGroupAsync() => RunAsync(async () =>
+    {
+        if (SelectedGroup is null || groupRepository is null)
+            return;
+        var id = SelectedGroup.Id;
+        SelectedGroup = null;
+        await groupRepository.DeleteAsync(id);
+        await LoadAsync();
+    });
+    public async Task ToggleFavoriteAsync()
+    {
+        if (Selected is null)
+            return;
+        if (!preferences.FavoriteAccounts.Remove(Selected.Id))
+            preferences.FavoriteAccounts.Add(Selected.Id);
+        SavePreferences();
+        await LoadAsync();
+    }
+    public Task LaunchAccountsAsync(IReadOnlyList<string> ids) => RunAsync(async () =>
+    {
+        if (instances is null || ids.Count == 0)
+        {
+            Status = "Select accounts to launch.";
+            return;
+        }
+        if (!long.TryParse(PlaceId, out var place) || place <= 0 || (!string.IsNullOrWhiteSpace(JobId) && !Guid.TryParse(JobId, out _)))
+        {
+            Status = "Enter a valid Place ID and optional Job ID.";
+            return;
+        }
+        var queued = 0;
+        foreach (var id in ids.Distinct())
+        {
+            try
+            {
+                await instances.EnqueueAsync(new(id, place, string.IsNullOrWhiteSpace(JobId) ? null : JobId.Trim()), lifetime.Token);
+                queued++;
+            }
+            catch (RobloxLaunchException) { }
+        }
+        Status = queued > 0 ? $"Queued {queued} accounts." : "Selected accounts are already running or queued.";
+        Changed(nameof(LaunchStatus));
+    });
     public int TotalCount => all.Count;
     public int RunningCount => all.Count(a => a.IsRunning);
     public int AttentionCount => all.Count(a => a.IsInvalid);
     private void Filter()
     {
-        var matches = all.Where(a => (a.Username.Contains(search, StringComparison.OrdinalIgnoreCase) || a.Notes.Contains(search, StringComparison.OrdinalIgnoreCase)) && (FilterMode != "Running" || a.IsRunning) && (FilterMode != "Attention" || a.IsInvalid)).ToList();
+        var matches = all.Where(a => (SelectedGroup is null || a.Data.GroupId == SelectedGroup.Id) && (FilterMode != "Favorites" || a.IsFavorite) && (a.Username.Contains(search, StringComparison.OrdinalIgnoreCase) || a.Notes.Contains(search, StringComparison.OrdinalIgnoreCase)) && (FilterMode != "Running" || a.IsRunning) && (FilterMode != "Attention" || a.IsInvalid)).ToList();
         if (!Accounts.SequenceEqual(matches))
         {
             Accounts.Clear();
@@ -509,7 +680,7 @@ public sealed class AccountsViewModel : ObservableObject
                 var result = await sessions.CheckAsync(row.Id, ct, renewIfDue: AutoRenewSessions);
                 if (result.Confirmed)
                     row.UpdateState(result.State);
-                if (manual || result.Confirmed)
+                if (manual || (!IsBusy && result.Confirmed))
                     Status = $"{row.Username}: {result.Message}";
             }
             Filter();
@@ -558,6 +729,7 @@ public sealed class AccountsViewModel : ObservableObject
         loginCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         var processed = 0;
         var rejected = 0;
+        var paused = false;
         try
         {
             foreach (var token in tokens)
@@ -569,16 +741,22 @@ public sealed class AccountsViewModel : ObservableObject
                     if (added is null)
                         rejected++;
                     else
+                    {
                         processed++;
+                        LastAddedCount = processed;
+                    }
                 }
+                catch (System.Net.Http.HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests) { paused = true; break; }
                 catch (System.Net.Http.HttpRequestException) { rejected++; }
                 catch (System.Net.CookieException) { rejected++; }
+                await Task.Delay(500, loginCancellation.Token);
             }
             LastAddedCount = processed;
+            SelectedGroup = null;
             Search = "";
             FilterMode = "All";
             await LoadAsync();
-            Status = $"Saved {processed} verified sessions; {rejected} cookies could not be verified.";
+            Status = paused ? $"Saved {processed} accounts. Roblox rate limit reached; retry the remaining cookies later." : rejected == 0 ? $"Saved {processed} accounts." : $"Saved {processed}; {rejected} cookies were not verified.";
         }
         finally { loginCancellation.Dispose(); loginCancellation = null; }
     });
@@ -602,28 +780,49 @@ public sealed class AccountsViewModel : ObservableObject
             await using var session = await browser.OpenAsync(new(profileId, "Sign in", root), ct);
             await session.NavigateAsync(startUrl ?? new Uri("https://www.roblox.com/login"), ct);
             if (login is not null)
+            {
                 await session.FillLoginAsync(login.Username, login.Password, ct);
+                Status = "Credentials filled. Click Log In in the browser.";
+            }
             if (!string.IsNullOrWhiteSpace(script))
                 await session.ExecuteScriptAsync(script, ct);
+            string? observedToken = null;
+            var nextCheck = DateTimeOffset.MinValue;
             while (session.IsOpen)
             {
-                await Task.Delay(TimeSpan.FromSeconds(4), ct);
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
                 var cookies = await session.ReadCookiesAsync(ct);
-                if (!cookies.Any(c => c.Name == ".ROBLOSECURITY"))
+                var currentToken = cookies.FirstOrDefault(c => c.Name == ".ROBLOSECURITY")?.Value;
+                if (currentToken is null || (currentToken == observedToken && DateTimeOffset.UtcNow < nextCheck))
                     continue;
+                observedToken = currentToken;
+                nextCheck = DateTimeOffset.UtcNow.AddSeconds(30);
                 var saved = new AccountSession(cookies, DateTimeOffset.UtcNow);
                 if (expected is null)
                 {
-                    var added = await onboarding.AddAsync(saved, ct, login?.Username);
+                    Account? added;
+                    try
+                    {
+                        added = await onboarding.AddAsync(saved, ct, login?.Username);
+                    }
+                    catch (System.Net.Http.HttpRequestException) { Status = "Waiting for Roblox verification. Complete it in the browser."; continue; }
+                    catch (TaskCanceledException) when (!ct.IsCancellationRequested) { Status = "Roblox is taking longer. Keep the browser open."; continue; }
                     if (added is null)
                         continue;
+                    LastAddedCount++;
                     if (login is not null)
-                        await credentials.SavePasswordAsync(added.Id, login.Password, ct);
+                    {
+                        try
+                        {
+                            await credentials.SavePasswordAsync(added.Id, login.Password, ct);
+                        }
+                        catch (Exception ex) when (ex is System.IO.IOException or System.Security.Cryptography.CryptographicException) { logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
+                    }
+                    SelectedGroup = null;
                     Search = "";
                     FilterMode = "All";
                     await LoadAsync();
                     Selected = Accounts.FirstOrDefault(a => a.Id == added.Id);
-                    LastAddedCount++;
                     Status = $"Added {added.Username}. Session encrypted locally.";
                     return;
                 }
@@ -706,7 +905,7 @@ public sealed class AccountsViewModel : ObservableObject
         catch (Exception ex) { logger.LogWarning("Browser monitoring stopped ({ErrorType})", ex.GetType().Name); }
         finally { if (openBrowsers.TryGetValue(account.Id, out var current) && ReferenceEquals(current, session)) openBrowsers.TryRemove(account.Id, out _); try { await session.DisposeAsync(); } catch (Exception ex) { logger.LogWarning("Browser close failed ({ErrorType})", ex.GetType().Name); } }
     }
-    public Task ImportRamAsync(Hive.Storage.RamImportService importer, IReadOnlyList<Hive.Storage.RamImportItem> items) => RunAsync(async () => { var summary = await importer.ImportAsync(items, lifetime.Token); Search = ""; FilterMode = "All"; await LoadAsync(); Status = $"Imported {summary.Added} accounts; skipped {summary.Skipped} existing accounts. Check sessions before use."; });
+    public Task ImportRamAsync(Hive.Storage.RamImportService importer, IReadOnlyList<Hive.Storage.RamImportItem> items) => RunAsync(async () => { var summary = await importer.ImportAsync(items, lifetime.Token); SelectedGroup = null; Search = ""; FilterMode = "All"; await LoadAsync(); Status = $"Imported {summary.Added} accounts; skipped {summary.Skipped} existing accounts. Check sessions before use."; });
     public void CancelPending()
     {
         loginCancellation?.Cancel();

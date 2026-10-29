@@ -14,9 +14,14 @@ namespace Hive.App;
 public partial class App : Application
 {
     private IHost? host;
+    private readonly bool initializeServices;
+    public App() : this(true) { }
+    public App(bool initializeServices) => this.initializeServices = initializeServices;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (!initializeServices)
+            return;
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive");
         Directory.CreateDirectory(root);
         host = Host.CreateDefaultBuilder().ConfigureAppConfiguration(c => c.SetBasePath(AppContext.BaseDirectory).AddJsonFile("appsettings.json", optional: true))
@@ -26,10 +31,12 @@ public partial class App : Application
              services.AddSingleton(new HiveDatabase(Path.Combine(root, "hive.db")));
              services.AddSingleton<ISecretProtector, DpapiSecretProtector>();
              services.AddSingleton<IAccountRepository, AccountRepository>();
+             services.AddSingleton<IAccountGroupRepository, AccountGroupRepository>();
              services.AddSingleton<ISessionStore, SessionStore>();
              services.AddSingleton<AccountOnboardingService>();
              services.AddSingleton<RamImportService>();
              services.AddSingleton<ICredentialStore, CredentialStore>();
+             services.AddSingleton<INetworkLog, NetworkLog>();
              services.AddSingleton<SessionManager>();
              services.AddSingleton<ISessionManager>(sp => sp.GetRequiredService<SessionManager>());
              services.AddSingleton<IAccountActivityTracker, AccountActivityTracker>();
@@ -37,6 +44,7 @@ public partial class App : Application
              services.AddSingleton<ILaunchDispatcher, RobloxProcessLauncher>();
              services.AddSingleton<IInstanceManager, InstanceManager>();
              services.AddSingleton(AppPreferences.Load());
+             services.AddSingleton<IGameWindowPreferences>(sp => sp.GetRequiredService<AppPreferences>());
              services.AddSingleton<IBrowserProvider>(sp => new ConfiguredBrowserProvider(sp.GetRequiredService<AppPreferences>(), context.Configuration["Browser:ExecutablePath"] ?? ""));
              services.AddSingleton<AccountsViewModel>();
              services.AddSingleton<MainWindow>();

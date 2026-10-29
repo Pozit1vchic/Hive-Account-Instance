@@ -6,6 +6,8 @@ namespace Hive.Browser;
 
 public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserProvider
 {
+    internal static Task<IPage[]> OpenPagesAsync(IBrowserSession session) =>
+        session is Session managed ? managed.OpenPagesAsync() : throw new ArgumentException("Not a managed browser session.", nameof(session));
     public async Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -14,20 +16,22 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
         Directory.CreateDirectory(profile.DirectoryPath);
         var stealth = new StealthPlugin();
         var plugins = new[] { stealth }.Cast<PuppeteerExtraPlugin>().Concat(stealth.GetDependencies()).OrderBy(p => p.Requirements.Contains(PluginRequirements.RunLast)).ToArray();
-        var options = new LaunchOptions { Headless = false, ExecutablePath = executablePath, UserDataDir = profile.DirectoryPath, DefaultViewport = null, Timeout = 15000 };
+        var options = new LaunchOptions { Headless = false, ExecutablePath = executablePath, UserDataDir = profile.DirectoryPath, DefaultViewport = null, Args = ["--window-size=820,600", "--window-position=80,60"], Timeout = 15000 };
         foreach (var plugin in plugins)
             await plugin.BeforeLaunchAsync(options);
         var browser = await Puppeteer.LaunchAsync(options);
         try
         {
+            var initialPages = await browser.PagesAsync();
             var context = await browser.CreateBrowserContextAsync();
             cancellationToken.ThrowIfCancellationRequested();
-            return new Session(browser, context, plugins);
+            return new Session(browser, context, plugins, initialPages);
         }
         catch { await browser.CloseAsync(); browser.Dispose(); throw; }
     }
-    private sealed class Session(IBrowser browser, IBrowserContext context, IReadOnlyList<PuppeteerExtraPlugin> plugins) : IBrowserSession
+    private sealed class Session(IBrowser browser, IBrowserContext context, IReadOnlyList<PuppeteerExtraPlugin> plugins, IReadOnlyList<IPage> initialPages) : IBrowserSession
     {
+        internal Task<IPage[]> OpenPagesAsync() => browser.PagesAsync();
         private IPage? currentPage;
         private int disposed;
         public bool IsOpen => disposed == 0 && browser.IsConnected;
@@ -40,11 +44,38 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
         public async Task NavigateAsync(Uri uri, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var page = await context.NewPageAsync();
-            currentPage = page;
-            // Apply and await Stealth on the managed page before its first navigation.
-            foreach (var plugin in plugins)
-                await plugin.OnPageCreatedAsync(page).WaitAsync(cancellationToken);
+            var page = currentPage;
+            if (page is null || page.IsClosed)
+            {
+                page = await context.NewPageAsync();
+                currentPage = page;
+                foreach (var plugin in plugins)
+                    await plugin.OnPageCreatedAsync(page).WaitAsync(cancellationToken);
+                foreach (var initialPage in initialPages)
+                    if (!initialPage.IsClosed)
+                        await initialPage.CloseAsync().WaitAsync(cancellationToken);
+                var window = await page.Client.SendAsync("Browser.getWindowForTarget").WaitAsync(cancellationToken);
+                var windowId = window!.Value.GetProperty("windowId").GetInt32();
+                await page.Client.SendAsync("Browser.setWindowBounds", new
+                {
+                    windowId,
+                    bounds = new
+                    {
+                        windowState = "normal"
+                    }
+                }).WaitAsync(cancellationToken);
+                await page.Client.SendAsync("Browser.setWindowBounds", new
+                {
+                    windowId,
+                    bounds = new
+                    {
+                        width = 820,
+                        height = 600,
+                        left = 80,
+                        top = 60
+                    }
+                }).WaitAsync(cancellationToken);
+            }
             await page.GoToAsync(uri.AbsoluteUri, new NavigationOptions { WaitUntil = [WaitUntilNavigation.DOMContentLoaded], Timeout = 60000 }).WaitAsync(cancellationToken);
         }
         public async Task FillLoginAsync(string username, string password, CancellationToken ct = default)
@@ -55,7 +86,7 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
             await page.WaitForSelectorAsync("#login-username", new WaitForSelectorOptions { Timeout = 20000 }).WaitAsync(ct);
             await page.TypeAsync("#login-username", username).WaitAsync(ct);
             await page.TypeAsync("#login-password", password).WaitAsync(ct);
-            await page.ClickAsync("#login-button").WaitAsync(ct);
+            // Leave the final submit and any verification to the person using the browser.
         }
         public async Task ExecuteScriptAsync(string script, CancellationToken ct = default)
         {
@@ -77,6 +108,8 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
             {
                 await browser.CloseAsync();
             }
+            catch (PuppeteerException) { }
+            catch (ObjectDisposedException) { }
             finally { browser.Dispose(); }
         }
     }

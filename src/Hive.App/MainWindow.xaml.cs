@@ -14,14 +14,18 @@ public partial class MainWindow : Window
 {
     private readonly AccountsViewModel model;
     private readonly RamImportService? importer;
+    private readonly Hive.Core.INetworkLog? networkLog;
+    private readonly HiveDatabase? database;
     private readonly CancellationTokenSource lifetime = new();
     private readonly DispatcherTimer watcher = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool closing;
     private bool shutdownStarted;
-    public MainWindow(AccountsViewModel model, RamImportService? importer = null)
+    public MainWindow(AccountsViewModel model, RamImportService? importer = null, Hive.Core.INetworkLog? networkLog = null, HiveDatabase? database = null)
     {
         this.model = model;
         this.importer = importer;
+        this.networkLog = networkLog;
+        this.database = database;
         InitializeComponent();
         DataContext = model;
 
@@ -60,6 +64,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            await Task.Delay(TimeSpan.FromSeconds(30), lifetime.Token);
             while (!lifetime.IsCancellationRequested)
             {
                 try
@@ -73,6 +78,100 @@ public partial class MainWindow : Window
             }
         }
         catch (OperationCanceledException) { }
+    }
+    private void ShowTools(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("Import RAM", "import", ImportRam));
+        menu.Items.Add(MenuEntry("Check sessions", "refresh", (_, _) => model.CheckCommand.Execute(null)));
+        menu.Items.Add(MenuEntry("Network log", "queue", (_, _) => { if (networkLog is not null) new NetworkLogWindow(networkLog) { Owner = this }.Show(); }));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("Export visible accounts (metadata)", "save", ExportMetadata));
+        menu.Items.Add(MenuEntry("Back up account database", "shield", BackupAccounts));
+        menu.Items.Add(MenuEntry("Close selected games", "stop", async (_, _) => await model.CloseGamesAsync(SelectedAccountIds())));
+        OpenMenu(menu, (FrameworkElement)sender);
+    }
+    private async void BackupAccounts(object sender, RoutedEventArgs e)
+    {
+        if (database is null)
+            return;
+        var picker = new SaveFileDialog { Title = "Back up encrypted account database", FileName = $"Hive-backup-{DateTime.Now:yyyyMMdd}.db", Filter = "SQLite backup (*.db)|*.db" };
+        if (picker.ShowDialog(this) != true)
+            return;
+        try
+        {
+            await database.BackupAsync(picker.FileName);
+            model.Status = "Encrypted account backup saved.";
+        }
+        catch (Exception) { model.Status = "Could not save the backup. Choose another file."; }
+    }
+    private async void ExportMetadata(object sender, RoutedEventArgs e)
+    {
+        var picker = new SaveFileDialog { Title = "Export account metadata", FileName = "Hive-accounts.json", Filter = "JSON (*.json)|*.json" };
+        if (picker.ShowDialog(this) != true)
+            return;
+        try
+        {
+            var items = model.Accounts.Select(row => new { row.Username, Alias = row.Data.DisplayName, Description = row.Notes, row.Data.RobloxUserId });
+            await File.WriteAllTextAsync(picker.FileName, JsonSerializer.Serialize(items, new JsonSerializerOptions { WriteIndented = true }));
+            model.Status = "Account metadata exported.";
+        }
+        catch (Exception) { model.Status = "Could not export account metadata."; }
+    }
+    private IReadOnlyList<string> SelectedAccountIds() => AccountsTable.SelectedItems.OfType<AccountRow>().Select(a => a.Id).ToList();
+    private async void LaunchSelectedAccounts(object sender, RoutedEventArgs e) => await model.LaunchAccountsAsync(SelectedAccountIds());
+    private void ShowFavorites(object sender, RoutedEventArgs e) => model.FilterMode = "Favorites";
+    private async void ToggleFavorite(object sender, RoutedEventArgs e) => await model.ToggleFavoriteAsync();
+    private static MenuItem MenuEntry(string text, string icon, RoutedEventHandler click)
+    {
+        var item = new MenuItem { Header = text, Icon = new SvgIcon { NameKey = icon, Width = 16, Height = 16 } };
+        item.Click += click;
+        return item;
+    }
+    private void OpenMenu(ContextMenu menu, FrameworkElement target)
+    {
+        menu.PlacementTarget = target;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+    private void ShowSavedPlaces(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("Save current place", "save", (_, _) => model.SaveCurrentPlace()));
+        if (model.SavedPlaces.Count > 0)
+            menu.Items.Add(new Separator());
+        foreach (var saved in model.SavedPlaces.ToList())
+            menu.Items.Add(MenuEntry(saved.PlaceId + (string.IsNullOrEmpty(saved.JobId) ? "" : " / server"), "play", (_, _) => { model.PlaceId = saved.PlaceId; model.JobId = saved.JobId; }));
+        OpenMenu(menu, (FrameworkElement)sender);
+    }
+    private async void CreateGroup(object? sender, RoutedEventArgs e)
+    {
+        var prompt = new TextPromptWindow("New group", "Group name") { Owner = this };
+        if (prompt.ShowDialog() == true)
+            await model.CreateGroupAsync(prompt.Value);
+    }
+    private void ShowGroups(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("All groups", "users", (_, _) => model.SelectedGroup = null));
+        foreach (var group in model.Groups.ToList())
+            menu.Items.Add(MenuEntry(group.Name, "group", (_, _) => model.SelectedGroup = group));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("New group", "plus", CreateGroup));
+        if (model.SelectedGroup is not null)
+            menu.Items.Add(MenuEntry("Delete group", "trash", async (_, _) => await model.DeleteSelectedGroupAsync()));
+        OpenMenu(menu, (FrameworkElement)sender);
+    }
+    private void ShowMoveGroups(object sender, RoutedEventArgs e)
+    {
+        var ids = SelectedAccountIds();
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("Ungrouped", "users", async (_, _) => await model.MoveToGroupAsync(null, ids)));
+        foreach (var group in model.Groups.ToList())
+            menu.Items.Add(MenuEntry(group.Name, "group", async (_, _) => await model.MoveToGroupAsync(group.Id, ids)));
+        if (model.Groups.Count == 0)
+            menu.Items.Add(MenuEntry("New group", "plus", CreateGroup));
+        OpenMenu(menu, AccountsTable);
     }
     private void ShowAddMenu(object sender, RoutedEventArgs e)
     {
@@ -91,8 +190,15 @@ public partial class MainWindow : Window
         ((Button)sender).ContextMenu = menu;
         menu.IsOpen = true;
     }
-    private void OpenAddDialog(string mode)
+    private async void OpenAddDialog(string mode)
     {
+        if (model.IsBusy)
+            return;
+        if (mode == "Manual")
+        {
+            await ((AsyncCommand)model.AddBrowserCommand).ExecuteAsync();
+            return;
+        }
         var dialog = new AddAccountsWindow(mode, model.EffectiveMotion) { Owner = this };
         dialog.SubmitAsync = async () =>
         {
@@ -104,7 +210,7 @@ public partial class MainWindow : Window
                 await model.AddCookiesAsync(dialog.Cookies);
             else
                 await model.AddCustomAsync(dialog.StartUrl!, dialog.Script);
-            dialog.SetProgress(model.Status);
+            dialog.SetProgress(model.Status, model.LastAddedCount == 0);
             return model.LastAddedCount > 0;
         };
         dialog.CancelOperation = () => model.CancelLoginCommand.Execute(null);

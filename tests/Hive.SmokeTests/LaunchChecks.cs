@@ -22,6 +22,8 @@ internal static class LaunchChecks
                 };
             if (request.RequestUri?.AbsoluteUri != "https://auth.roblox.com/v1/authentication-ticket/" || !request.Headers.Contains("RBXAuthenticationNegotiation"))
                 throw new Exception("Unexpected ticket request");
+            if (request.Content?.Headers.ContentType?.MediaType != "application/json" || request.Content.ReadAsStringAsync().GetAwaiter().GetResult() != "{}" || request.Headers.Referrer?.AbsoluteUri != "https://www.roblox.com/games/123456/")
+                throw new Exception("Launch ticket requires a JSON body and place-page referrer");
             ticketCalls++;
             if (ticketCalls == 1)
             {
@@ -55,6 +57,11 @@ internal static class LaunchChecks
         if ((await accounts.GetAllAsync()).Single().SessionState != SessionState.ReauthenticationRequired)
             throw new Exception("Unauthorized ticket did not invalidate the session");
         await accounts.DeleteAsync(account.Id);
+        if (!RobloxProcessLauncher.MatchesTracker("RobloxPlayerBeta.exe -b 123456789 -t hidden", "123456789")
+            || !RobloxProcessLauncher.MatchesTracker("RobloxPlayerBeta.exe roblox-player:1+gameinfo:hidden+browsertrackerid:123456789+launchmode:play", "123456789")
+            || RobloxProcessLauncher.MatchesTracker("RobloxPlayerBeta.exe -b 1234567890", "123456789")
+            || RobloxProcessLauncher.MatchesTracker("RobloxPlayerBeta.exe +browsertrackerid:1234567890+", "123456789"))
+            throw new Exception("Tracker correlation accepted the wrong process or missed a protocol-wrapper launch");
         var tracker = new Tracker();
         var dispatcher = new Dispatcher(tracker);
         await using (var manager = new InstanceManager(dispatcher, tracker, TimeSpan.Zero))

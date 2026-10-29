@@ -18,6 +18,13 @@ try
     await using (var session = await provider.OpenAsync(new("smoke", "Browser compatibility check", testProfile)))
     {
         await session.NavigateAsync(new Uri("about:blank"));
+        if ((await PuppeteerBrowserProvider.OpenPagesAsync(session)).Length != 1)
+            throw new Exception("Expected one browser page after navigation.");
+        var managedPage = (await PuppeteerBrowserProvider.OpenPagesAsync(session)).Single();
+        var browserWindow = await managedPage.Client.SendAsync("Browser.getWindowForTarget");
+        var bounds = browserWindow!.Value.GetProperty("bounds");
+        if (bounds.GetProperty("windowState").GetString() != "normal" || bounds.GetProperty("width").GetInt32() != 820 || bounds.GetProperty("height").GetInt32() != 600)
+            throw new Exception("Browser did not start in its compact window bounds.");
         await session.RestoreCookiesAsync([new("hive_smoke", "local-test-only", ".roblox.com", "/", null, true, true)]);
         var cookies = await session.ReadCookiesAsync();
         if (cookies.Single(c => c.Name == "hive_smoke").Value != "local-test-only")
@@ -25,6 +32,8 @@ try
         if (args.Contains("--roblox"))
         {
             await session.NavigateAsync(new Uri("https://www.roblox.com/login"));
+            if ((await PuppeteerBrowserProvider.OpenPagesAsync(session)).Length != 1)
+                throw new Exception("Repeated navigation opened an extra browser page.");
             Console.WriteLine("PASS: Roblox sign-in page opened through Stealth.");
         }
         Console.WriteLine("PASS: PuppeteerSharp + StealthPlugin launch, isolated context, navigation, cookie restore/read.");

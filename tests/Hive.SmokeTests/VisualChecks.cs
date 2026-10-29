@@ -10,10 +10,10 @@ internal static class VisualChecks
 {
     public static void Run(string folder)
     {
-        var app = new Hive.App.App();
+        var app = new Hive.App.App(false);
         app.InitializeComponent();
         var vm = PreviewFixtures.CreateViewModel(Path.Combine(folder, "preview-preferences.json"));
-        ThemeManager.Apply(new AppPreferences());
+        ThemeManager.Apply(new AppPreferences { AnimationsEnabled = false });
         vm.FilterMode = "Running";
         if (vm.Count != 2)
             throw new Exception("Running filter failed");
@@ -33,9 +33,20 @@ internal static class VisualChecks
         PresentationTraceSources.DataBindingSource.Listeners.Add(listener);
         var window = new MainWindow(vm) { Width = 1100, Height = 700 };
         window.Show();
+        var resizeProbe = new Window { Width = 1200, Height = 800, Title = "Hive window sizing check", Owner = window };
+        resizeProbe.Show();
+        if (!Hive.Infrastructure.RobloxWindowSizer.ApplyCompactBounds(new System.Windows.Interop.WindowInteropHelper(resizeProbe).Handle))
+            throw new Exception("Compact native window bounds failed");
+        resizeProbe.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        var dpi = VisualTreeHelper.GetDpi(resizeProbe);
+        if (Math.Abs(resizeProbe.ActualWidth * dpi.DpiScaleX - 800) > 2 || Math.Abs(resizeProbe.ActualHeight * dpi.DpiScaleY - 500) > 2)
+            throw new Exception("Native compact bounds have the wrong dimensions");
+        resizeProbe.Close();
+        if (((SolidColorBrush)app.Resources["SurfaceBrush"]).Color != Colors.White)
+            throw new Exception("Light theme resource is not white");
         Capture(window, "artifacts/accounts-preview.png");
-        window.Width = 940;
-        window.Height = 580;
+        window.Width = 860;
+        window.Height = 540;
         Capture(window, "artifacts/accounts-small-preview.png");
         window.Width = 1100;
         window.Height = 700;
@@ -73,6 +84,11 @@ internal static class VisualChecks
         completion.SetResult(false);
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
         retry.Close();
+        var modal = new AddAccountsWindow("Cookies", false) { Owner = window };
+        modal.SubmitAsync = () => Task.FromResult(true);
+        modal.Loaded += (_, _) => modal.Dispatcher.BeginInvoke(new Action(() => { ((TextBox)modal.FindName("CookiesInput")).Text = "local-confirmation-test"; ((Button)modal.FindName("ContinueButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }));
+        if (modal.ShowDialog() != true)
+            throw new Exception("Successful addition did not close with a success result");
         var details = new AccountDetailsWindow(vm) { Owner = window };
         details.Show();
         Capture(details, "artifacts/account-details.png");
@@ -93,12 +109,14 @@ internal static class VisualChecks
         settings.Width = 930;
         settings.Height = 730;
         var tabs = Find<TabControl>(settings);
-        if (tabs is null || tabs.Items.Count != 4)
+        if (tabs is null || tabs.Items.Count != 3)
             throw new Exception("Settings categories are missing");
         for (var i = 1; i < tabs.Items.Count; i++)
         {
             tabs.SelectedIndex = i;
             settings.UpdateLayout();
+            if (((TabItem)tabs.Items[0]).IsSelected || !((TabItem)tabs.Items[i]).IsSelected)
+                throw new Exception("Inactive settings tab remained selected");
             Capture(settings, $"artifacts/settings-{i}.png");
         }
         tabs.SelectedIndex = 0;

@@ -15,8 +15,8 @@ public static class UiMotion
             element.Opacity = 1;
             return;
         }
-        element.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(280)));
-        shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(12, 0, TimeSpan.FromMilliseconds(280)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        element.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.72, 1, TimeSpan.FromMilliseconds(180)) { FillBehavior = FillBehavior.Stop });
+        shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(5, 0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
     }
     public static void Attach(Window window, bool enabled) => window.Loaded += (_, _) => Reveal((FrameworkElement)window.Content, enabled);
 }

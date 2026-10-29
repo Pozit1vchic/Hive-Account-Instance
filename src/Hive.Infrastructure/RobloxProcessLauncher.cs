@@ -5,7 +5,7 @@ using Hive.Core;
 using Microsoft.Win32;
 namespace Hive.Infrastructure;
 
-public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountActivityTracker tracker) : ILaunchDispatcher
+public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountActivityTracker tracker, IGameWindowPreferences? preferences = null) : ILaunchDispatcher
 {
     public async Task<int?> DispatchAsync(LaunchRequest request, CancellationToken ct = default)
     {
@@ -27,6 +27,8 @@ public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountAc
                 try
                 {
                     tracker.Attach(request.AccountId, pid.Value);
+                    if (preferences?.CompactGameWindows != false)
+                        _ = RobloxWindowSizer.ResizeWhenReadyAsync(pid.Value, ct);
                     return pid;
                 }
                 catch (ProcessAssignmentException) { }
@@ -34,6 +36,14 @@ public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountAc
             await Task.Delay(500, ct);
         }
         return null;
+    }
+    public static bool MatchesTracker(string command, string trackerId)
+    {
+        if (trackerId.Length is < 1 or > 24 || trackerId.Any(c => !char.IsAsciiDigit(c)))
+            return false;
+        var escaped = Regex.Escape(trackerId);
+        return Regex.IsMatch(command, @"(?:^|\s)-b\s+[""]?" + escaped + @"(?:[""]?(?:\s|$))")
+            || Regex.IsMatch(command, @"(?:[+])browsertrackerid:" + escaped + @"(?=[+""\s]|$)", RegexOptions.IgnoreCase);
     }
     private static int? FindProcess(string trackerId)
     {
@@ -45,7 +55,7 @@ public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountAc
             {
                 using (result)
                 {
-                    if (result["CommandLine"] is string command && Regex.IsMatch(command, @"(?:^|\s)-b\s+" + Regex.Escape(trackerId) + @"(?:\s|$)"))
+                    if (result["CommandLine"] is string command && MatchesTracker(command, trackerId))
                         return checked((int)(uint)result["ProcessId"]);
                 }
             }
