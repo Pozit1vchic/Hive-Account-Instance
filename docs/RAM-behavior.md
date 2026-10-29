@@ -24,10 +24,10 @@ Hive obtains authentication tickets with one CSRF retry and builds encoded Place
 | Open an account's browser | Implemented with private context restoration |
 | Aliases/descriptions and RAM import | Descriptions editable; imported alias retained; readable JSON import implemented |
 | Refresh cookies | Implemented with scheduling, CSRF retry, encrypted replacement and rate-limit throttling |
-| Groups / presence | Groups schema exists; group UI and presence remain future work |
+| Groups / favorites / saved places | SQLite group management, favorite filter, saved places and current launch target implemented; Roblox presence remains future work |
 | PlaceId/JobId, private servers, follow user | PlaceId/JobId ticket launcher implemented; private servers and follow-user remain future work |
 | Launch queue, multi-instance, watcher, rejoin | Bounded queue and correlated process watcher implemented; multi-instance and automatic rejoin remain future work |
-| Account utilities | Password/email/privacy mutations were studied; not enabled in this increment |
+| Account utilities | Session checks, encrypted database backup, metadata export, redacted Network Log and graceful selected-game closure implemented; password/email/privacy mutations remain outside this increment |
 | Local API / account control | Not adopted; Hive has no listening web server or custom backend |
 | Custom script/captcha-service hooks | Explicit Custom URL + JS flow implemented; external captcha-service integration not adopted |
 
