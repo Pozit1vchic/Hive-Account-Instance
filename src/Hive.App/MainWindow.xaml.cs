@@ -28,6 +28,17 @@ public partial class MainWindow : Window
         this.database = database;
         InitializeComponent();
         DataContext = model;
+        AccountsTable.PreviewMouseRightButtonDown += (_, e) =>
+        {
+            var element = e.OriginalSource as DependencyObject;
+            while (element is not null && element is not DataGridRow)
+                element = element is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element);
+            if (element is DataGridRow { Item: AccountRow account })
+            {
+                if (!Equals(AccountsTable.SelectedItem, account)) AccountsTable.SelectedItem = account;
+                model.Selected = account;
+            }
+        };
 
         watcher.Tick += (_, _) => model.RefreshActivity();
         Loaded += (_, _) =>
@@ -257,16 +268,27 @@ public partial class MainWindow : Window
     private void MinimizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void MaximizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void CloseWindow(object sender, RoutedEventArgs e) => Close();
-    private void CopyUsername(object sender, RoutedEventArgs e)
+    private async void CopyUsername(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("username");
+    private async void CopyPassword(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("password");
+    private async void CopyCombo(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("combo");
+    private async void CopyCookie(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("cookie");
+    private async void CopyAlias(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("alias");
+    private async void CopyUserId(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("userId");
+    private async void CopyDescription(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("description");
+    private async Task CopyAccountValueAsync(string kind)
     {
-        if (model.Selected is null)
+        var account = model.Selected;
+        if (account is null)
             return;
         try
         {
-            Clipboard.SetText(model.Selected.Username);
-            model.Status = "Username copied.";
+            var value = await model.ReadCopyValueAsync(account, kind);
+            if (string.IsNullOrEmpty(value)) { model.Status = "No saved value for this account."; return; }
+            Clipboard.SetText(value);
+            model.Status = "Copied to clipboard.";
         }
         catch (System.Runtime.InteropServices.COMException) { model.Status = "Clipboard is busy. Try again."; }
+        catch (Exception) { model.Status = "Could not read the saved value."; }
     }
     private async void ImportRam(object sender, RoutedEventArgs e)
     {

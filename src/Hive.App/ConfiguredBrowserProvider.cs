@@ -6,11 +6,19 @@ namespace Hive.App;
 public sealed class ConfiguredBrowserProvider(AppPreferences preferences, string configuredPath) : IBrowserProvider
 {
     private readonly SemaphoreSlim browserSetup = new(1, 1);
+    private string? resolvedExecutable;
     public async Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default)
     {
+        var cached = Volatile.Read(ref resolvedExecutable);
+        if (cached is not null && File.Exists(cached)) return await new PuppeteerBrowserProvider(cached).OpenAsync(profile, cancellationToken);
         await browserSetup.WaitAsync(cancellationToken);
-        try { return await OpenCoreAsync(profile, cancellationToken); }
+        try
+        {
+            cached = Volatile.Read(ref resolvedExecutable);
+            if (cached is null || !File.Exists(cached)) return await OpenCoreAsync(profile, cancellationToken);
+        }
         finally { browserSetup.Release(); }
+        return await new PuppeteerBrowserProvider(cached).OpenAsync(profile, cancellationToken);
     }
     private async Task<IBrowserSession> OpenCoreAsync(BrowserProfile profile, CancellationToken cancellationToken)
     {
@@ -57,10 +65,13 @@ public sealed class ConfiguredBrowserProvider(AppPreferences preferences, string
                     BuildId = installed.BuildId,
                     VerifiedAt = DateTimeOffset.UtcNow
                 }), cancellationToken);
+                Volatile.Write(ref resolvedExecutable, executable);
                 return session;
             }
             catch { await session.DisposeAsync(); throw; }
         }
-        return await new PuppeteerBrowserProvider(executable).OpenAsync(profile, cancellationToken);
+        var opened = await new PuppeteerBrowserProvider(executable).OpenAsync(profile, cancellationToken);
+        Volatile.Write(ref resolvedExecutable, executable);
+        return opened;
     }
 }

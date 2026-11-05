@@ -54,8 +54,11 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
                 foreach (var initialPage in initialPages)
                     if (!initialPage.IsClosed)
                         await initialPage.CloseAsync().WaitAsync(cancellationToken);
+                try
+                {
                 var window = await page.Client.SendAsync("Browser.getWindowForTarget").WaitAsync(cancellationToken);
-                var windowId = window!.Value.GetProperty("windowId").GetInt32();
+                if (window is null || !window.Value.TryGetProperty("windowId", out var windowIdValue)) throw new InvalidOperationException("Window bounds are unavailable.");
+                var windowId = windowIdValue.GetInt32();
                 await page.Client.SendAsync("Browser.setWindowBounds", new
                 {
                     windowId,
@@ -75,6 +78,8 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
                         top = 60
                     }
                 }).WaitAsync(cancellationToken);
+                }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is PuppeteerException or InvalidOperationException) { /* Browser can still open if native window sizing is unavailable. */ }
             }
             try
             {
@@ -94,10 +99,12 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
                 throw new InvalidOperationException("Credentials can only be filled on Roblox sign-in.");
             try
             {
-                await page.WaitForSelectorAsync("#login-username", new WaitForSelectorOptions { Timeout = 20000 }).WaitAsync(ct);
-                await page.WaitForSelectorAsync("#login-password", new WaitForSelectorOptions { Timeout = 20000 }).WaitAsync(ct);
-                await page.TypeAsync("#login-username", username).WaitAsync(ct);
-                await page.TypeAsync("#login-password", password).WaitAsync(ct);
+                const string usernameSelector = "#login-username, input[name='username'], input[autocomplete='username'], input[placeholder*='username' i]";
+                const string passwordSelector = "#login-password, input[name='password'], input[autocomplete='current-password'], input[type='password']";
+                await page.WaitForSelectorAsync(usernameSelector, new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
+                await page.WaitForSelectorAsync(passwordSelector, new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
+                await page.TypeAsync(usernameSelector, username).WaitAsync(ct);
+                await page.TypeAsync(passwordSelector, password).WaitAsync(ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested && ex is PuppeteerException or TimeoutException) { throw new BrowserPageLoadException("The sign-in form did not finish loading.", ex); }
         }
@@ -106,19 +113,20 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
             var page = currentPage ?? throw new InvalidOperationException("Navigate before submitting sign-in.");
             if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com") || !address.AbsolutePath.StartsWith("/login", StringComparison.Ordinal))
                 throw new InvalidOperationException("Sign-in can only be submitted on Roblox.");
-            await page.WaitForSelectorAsync("#login-button:not([disabled])", new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
-            for (var attempt = 0; attempt < 40; attempt++)
+            for (var attempt = 0; attempt < 120; attempt++)
             {
                 await AcceptCookieConsentAsync(ct);
                 var unobstructed = await page.EvaluateExpressionAsync<bool>(@"(() => {
-                    const button = document.querySelector('#login-button:not([disabled])');
-                    if (!button) return false;
+                    const button = document.querySelector('#login-button') || Array.from(document.querySelectorAll('button')).find(b => /^(sign in|log in)$/i.test((b.innerText || '').trim()));
+                    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true' || !button.getClientRects().length) return false;
                     button.scrollIntoView({ block: 'center' });
                     const r = button.getBoundingClientRect();
                     const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-                    return !!top && (top === button || button.contains(top));
+                    if (!top || (top !== button && !button.contains(top))) return false;
+                    button.setAttribute('data-hive-sign-in', 'true');
+                    return true;
                 })()").WaitAsync(ct);
-                if (unobstructed) { await page.ClickAsync("#login-button").WaitAsync(ct); return; }
+                if (unobstructed) { await page.ClickAsync("[data-hive-sign-in='true']").WaitAsync(ct); return; }
                 await Task.Delay(250, ct);
             }
             throw new TimeoutException("Sign-in button is covered. Complete sign-in in the browser.");
@@ -130,7 +138,7 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
             try
             {
                 await page.EvaluateExpressionAsync(@"(() => {
-                    const button = document.querySelector('#onetrust-accept-btn-handler');
+                    const button = document.querySelector('#onetrust-accept-btn-handler') || Array.from(document.querySelectorAll('button')).find(b => /^accept all$/i.test((b.innerText || '').trim()));
                     if (button && button.getClientRects().length && !button.disabled) button.click();
                 })()").WaitAsync(ct);
             }

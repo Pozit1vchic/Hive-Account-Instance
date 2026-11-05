@@ -222,6 +222,21 @@ public sealed class AccountsViewModel : ObservableObject
         }
     }
     public bool HasSelection => Selected is not null;
+    public async Task<string?> ReadCopyValueAsync(AccountRow account, string kind, CancellationToken ct = default)
+    {
+        if (kind == "username") return account.Username;
+        if (kind == "alias") return string.IsNullOrEmpty(account.Data.DisplayName) ? null : account.Data.DisplayName;
+        if (kind == "userId") return account.Data.RobloxUserId?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (kind == "description") return string.IsNullOrEmpty(account.Notes) ? null : account.Notes;
+        if (kind == "cookie")
+            return (await (sessionStore?.ReadAsync(account.Id, ct) ?? Task.FromResult<AccountSession?>(null)))?.Cookies.FirstOrDefault(c => c.Name == ".ROBLOSECURITY" && (c.Domain == ".roblox.com" || c.Domain == "roblox.com"))?.Value;
+        if (kind is "password" or "combo")
+        {
+            var password = await credentials.ReadPasswordAsync(account.Id, ct);
+            return string.IsNullOrEmpty(password) ? null : kind == "combo" ? account.Username + ":" + password : password;
+        }
+        throw new ArgumentException("Unknown copy action.", nameof(kind));
+    }
     public string EditorTitle => Selected is null ? "New account" : Selected.Username;
     private string placeId = "", jobId = "";
     public string PlaceId

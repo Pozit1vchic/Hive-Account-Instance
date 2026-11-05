@@ -55,7 +55,10 @@ try
         if (Encoding.UTF8.GetString(bytes).Contains(secret))
             throw new Exception("Session stored in plaintext");
     }
-    var vm = new AccountsViewModel(accounts, new CredentialStore(database, new DpapiSecretProtector()), new Hive.Roblox.SessionManager(sessions, accounts), new AccountActivityTracker(), new Hive.App.ConfiguredBrowserProvider(new AppPreferences(), ""), new AppPreferences { AutoCheckSessions = false }, NullLogger<AccountsViewModel>.Instance);
+    var copyCredentials = new CredentialStore(database, new DpapiSecretProtector());
+    await copyCredentials.SavePasswordAsync(account.Id, "local-copy-test");
+    await sessions.SaveAsync(account.Id, new AccountSession([new SessionCookie(".ROBLOSECURITY", secret, ".roblox.com", "/", null, true, true)], DateTimeOffset.UtcNow));
+    var vm = new AccountsViewModel(accounts, copyCredentials, new Hive.Roblox.SessionManager(sessions, accounts), new AccountActivityTracker(), new Hive.App.ConfiguredBrowserProvider(new AppPreferences(), ""), new AppPreferences { AutoCheckSessions = false }, NullLogger<AccountsViewModel>.Instance, sessionStore: sessions);
     await vm.LoadAsync();
     vm.Search = "missing";
     if (vm.Count != 0)
@@ -64,6 +67,7 @@ try
     if (vm.Count != 1)
         throw new Exception("Search failed");
     vm.Selected = vm.Accounts.Single();
+    if (await vm.ReadCopyValueAsync(vm.Selected, "password") != "local-copy-test" || await vm.ReadCopyValueAsync(vm.Selected, "combo") != "hive_test:local-copy-test" || await vm.ReadCopyValueAsync(vm.Selected, "cookie") != secret) throw new Exception("Copy values do not match the selected account");
     vm.Alias = "local-alias";
     await ((AsyncCommand)vm.SaveCommand).ExecuteAsync();
     if ((await accounts.GetAllAsync()).Single().DisplayName != "local-alias") throw new Exception("Alias was not saved");

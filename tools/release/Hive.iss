@@ -19,6 +19,7 @@ OutputBaseFilename=Hive-Setup-{#AppVersion}-win-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\src\Hive.App\Assets\Hive.ico
 UninstallDisplayIcon={app}\Hive.App.exe
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
