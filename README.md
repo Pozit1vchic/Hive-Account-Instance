@@ -93,3 +93,9 @@ To build a self-contained Windows x64 portable ZIP and, when `ISCC.exe` is insta
 Credential batches open up to four isolated browser sessions concurrently (two by default; adjustable in Preferences > Accounts); complete any Roblox verification in each window. Hive attempts to accept Roblox's OneTrust cookie-consent banner. Game window dimensions are configurable in Preferences > Launch, in physical pixels.
 
 Copy actions are available from the account context menu. The session-cookie action copies the stored `.ROBLOSECURITY` value. Clipboard contents remain until replaced by Windows or another application. To use the optional local MCP integration, register it explicitly in your MCP client; Hive does not register it automatically.
+
+Utilities > Check Roblox presence queries the selected account’s verified Roblox user ID on demand. Roblox presence is informational and does not identify a local process or change the Running filter.
+
+Preferences > Accounts can mask account names in the table. This is a presentation option; names may remain visible in other windows and through Copy. The manual presence check is separate from local Running status. See `docs/RAM-feature-map.md` for a detailed legacy feature inventory and open items.
+
+Utilities > Follow user by username resolves the Roblox username to a user ID and fills the Follow user launcher. It does not start a game until you select an account and launch.

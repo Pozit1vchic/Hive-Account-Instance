@@ -68,6 +68,8 @@ internal static class BrowserFlowChecks
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), parallel, preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
         var batch = vm.AddCredentialsAsync([new("first", "test"), new("second", "test"), new("third", "test")]);
         await parallel.TwoOpened.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var consentDeadline = DateTimeOffset.UtcNow.AddSeconds(3);
+        while (parallel.Sessions.Any(s => s.ConsentCalls == 0) && DateTimeOffset.UtcNow < consentDeadline) await Task.Delay(10);
         if (parallel.Sessions.Count != 2) throw new Exception("More than two browser sign-ins opened concurrently");
         await ((AsyncCommand)vm.CancelLoginCommand).ExecuteAsync();
         await batch.WaitAsync(TimeSpan.FromSeconds(3));

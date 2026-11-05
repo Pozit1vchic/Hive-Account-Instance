@@ -40,6 +40,7 @@ public sealed class AppPreferences : Hive.Core.IGameWindowPreferences, Hive.Core
     {
         get; set;
     }
+    public bool HideUsernames { get; set; }
     public bool CompactGameWindows { get; set; } = true;
     public int GameWindowWidth { get; set; } = 800;
     public int GameWindowHeight { get; set; } = 500;

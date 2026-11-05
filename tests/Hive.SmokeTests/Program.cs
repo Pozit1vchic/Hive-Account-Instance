@@ -25,6 +25,21 @@ try
     await database.InitializeAsync();
     var accounts = new AccountRepository(database);
     var account = new Account(Guid.NewGuid().ToString("N"), "hive_test", "Hive Test", null, "Local note", SessionState.ReauthenticationRequired);
+    var rowProbe = new AccountRow(account);
+    var notifications = 0;
+    rowProbe.PropertyChanged += (_, _) => notifications++;
+    rowProbe.ProcessId = 42;
+    var afterChange = notifications;
+    rowProbe.ProcessId = 42;
+    rowProbe.UpdateState(SessionState.ReauthenticationRequired);
+    if (afterChange == 0 || notifications != afterChange) throw new Exception("Unchanged account state raised redundant UI notifications");
+    rowProbe.HideUsername = true;
+    if (rowProbe.UsernameText.Contains(account.Username) || rowProbe.Username != account.Username) throw new Exception("Account name masking altered underlying identity");
+    rowProbe.HideUsername = false;
+    if (rowProbe.UsernameText != account.Username) throw new Exception("Account name masking did not restore the visible name");
+    var privacyPath = Path.Combine(folder, "privacy-preferences.json");
+    new AppPreferences { StoragePath = privacyPath, HideUsernames = true }.Save();
+    if (!AppPreferences.Load(privacyPath).HideUsernames) throw new Exception("Account name masking preference was not persisted");
     await accounts.SaveAsync(account);
     if ((await accounts.GetAllAsync()).Single() != account)
         throw new Exception("Account roundtrip failed");
@@ -46,6 +61,7 @@ try
     catch (SqliteException ex) when (ex.SqliteErrorCode == 19) { }
     var sessions = new SessionStore(database, new DpapiSecretProtector());
     const string secret = "smoke-test-session-secret";
+    if (new SessionCookie(".ROBLOSECURITY", secret, ".roblox.com", "/", null, true, true).ToString().Contains(secret, StringComparison.Ordinal)) throw new Exception("Session cookie string representation exposed a secret");
     await sessions.SaveAsync(account.Id, new AccountSession([new SessionCookie("test", secret, ".roblox.com", "/", null, true, true)], DateTimeOffset.UtcNow));
     if ((await sessions.ReadAsync(account.Id))?.Cookies.Single().Value != secret)
         throw new Exception("DPAPI roundtrip failed");
@@ -79,6 +95,7 @@ try
     Console.WriteLine("PASS: migrations, CRUD, uniqueness, search, DPAPI encryption, session roundtrip, cascade deletion.");
     await SecurityChecks.RunAsync(database, accounts, sessions, folder);
     await FeatureChecks.RunAsync(database, accounts, sessions);
+    await PresenceChecks.RunAsync();
     await PersistenceChecks.RunAsync(folder);
     await BrowserFlowChecks.RunAsync(database, accounts, sessions, folder);
     await LaunchChecks.RunAsync(accounts, sessions);

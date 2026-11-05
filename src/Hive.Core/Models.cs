@@ -17,7 +17,10 @@ public sealed record LaunchRequest(string AccountId, long PlaceId, string? JobId
 {
     public override string ToString() => $"LaunchRequest ({Kind})";
 }
-public sealed record SessionCookie(string Name, string Value, string Domain, string Path, double? Expires, bool Secure, bool HttpOnly);
+public sealed record SessionCookie(string Name, string Value, string Domain, string Path, double? Expires, bool Secure, bool HttpOnly)
+{
+    public override string ToString() => nameof(SessionCookie);
+}
 public sealed record AccountSession(IReadOnlyList<SessionCookie> Cookies, DateTimeOffset SavedAt, DateTimeOffset? LastRenewedAt = null);
 
 public sealed record RobloxIdentity(long Id, string Username, string DisplayName);

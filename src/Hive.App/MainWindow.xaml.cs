@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -100,12 +101,42 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry("Account privacy", "eye", async (_, _) => await model.OpenAccountSettingsAsync("privacy")));
         menu.Items.Add(MenuEntry("Import RAM", "import", ImportRam));
         menu.Items.Add(MenuEntry("Check sessions", "refresh", (_, _) => model.CheckCommand.Execute(null)));
+        menu.Items.Add(MenuEntry("Check Roblox presence", "users", CheckPresence));
+        menu.Items.Add(MenuEntry("Follow user by username", "users", FollowByUsername));
         menu.Items.Add(MenuEntry("Network log", "queue", (_, _) => { if (networkLog is not null) new NetworkLogWindow(networkLog) { Owner = this }.Show(); }));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("Export visible accounts (metadata)", "save", ExportMetadata));
         menu.Items.Add(MenuEntry("Back up account database", "shield", BackupAccounts));
         menu.Items.Add(MenuEntry("Close selected games", "stop", async (_, _) => await model.CloseGamesAsync(SelectedAccountIds())));
         OpenMenu(menu, (FrameworkElement)sender);
+    }
+    private async void CheckPresence(object? sender, RoutedEventArgs e)
+    {
+        var account = model.Selected;
+        if (account?.Data.RobloxUserId is not > 0) { model.Status = "Select an account with a verified Roblox user ID."; return; }
+        try
+        {
+            var presence = await new Hive.Roblox.PresenceClient(networkLog: networkLog).GetPresenceAsync(account.Data.RobloxUserId.Value, lifetime.Token);
+            model.Status = $"{account.Username}: {presence}";
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException) { model.Status = "Could not check Roblox presence."; }
+    }
+    private async void FollowByUsername(object? sender, RoutedEventArgs e)
+    {
+        var prompt = new TextPromptWindow("Follow user", "Roblox username", "Find") { Owner = this };
+        if (prompt.ShowDialog() != true) return;
+        try
+        {
+            var id = await new Hive.Roblox.UserLookupClient(networkLog: networkLog).FindIdAsync(prompt.Value, lifetime.Token);
+            if (id is null) { model.Status = "Roblox user not found."; return; }
+            model.LaunchMode = Hive.Core.LaunchKind.FollowUser;
+            model.LaunchTargetId = id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            model.Status = "User found. Select an account and launch.";
+        }
+        catch (Hive.Core.RobloxLaunchException ex) { model.Status = ex.Message; }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or ArgumentException) { model.Status = "Could not find the Roblox user."; }
     }
     private async void BackupAccounts(object sender, RoutedEventArgs e)
     {
@@ -274,6 +305,7 @@ public partial class MainWindow : Window
     private async void CopyCookie(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("cookie");
     private async void CopyAlias(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("alias");
     private async void CopyUserId(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("userId");
+    private async void CopyProfile(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("profile");
     private async void CopyDescription(object sender, RoutedEventArgs e) => await CopyAccountValueAsync("description");
     private async Task CopyAccountValueAsync(string kind)
     {

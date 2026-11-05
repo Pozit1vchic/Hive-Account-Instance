@@ -21,10 +21,14 @@ public sealed class AccountRow(Account data) : ObservableObject
     }
     public Account Data { get; private set; } = data;
     public string Id => Data.Id; public string Username => Data.Username; public string Notes => Data.Notes;
+    private bool hideUsername;
+    public bool HideUsername { get => hideUsername; set { if (hideUsername == value) return; hideUsername = value; Changed(); Changed(nameof(UsernameText)); } }
+    public string UsernameText => HideUsername ? "••••••••" : Username;
     private string passwordText = "—"; public string PasswordText
     {
         get => passwordText; set
         {
+            if (passwordText == value) return;
             passwordText = value;
             Changed();
         }
@@ -33,6 +37,7 @@ public sealed class AccountRow(Account data) : ObservableObject
     {
         get => processId; set
         {
+            if (processId == value) return;
             processId = value;
             Changed();
             Changed(nameof(IsRunning));
@@ -44,6 +49,7 @@ public sealed class AccountRow(Account data) : ObservableObject
     public string StateLabel => IsInvalid ? "Sign-in required" : IsRunning ? $"Running · PID {ProcessId}" : Data.SessionState == SessionState.Valid ? "Session valid · not running" : "Not running · session not checked";
     public void UpdateState(SessionState state)
     {
+        if (Data.SessionState == state) return;
         Data = Data with
         {
             SessionState = state
@@ -227,6 +233,7 @@ public sealed class AccountsViewModel : ObservableObject
         if (kind == "username") return account.Username;
         if (kind == "alias") return string.IsNullOrEmpty(account.Data.DisplayName) ? null : account.Data.DisplayName;
         if (kind == "userId") return account.Data.RobloxUserId?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (kind == "profile") return account.Data.RobloxUserId is > 0 ? $"https://www.roblox.com/users/{account.Data.RobloxUserId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}/profile" : null;
         if (kind == "description") return string.IsNullOrEmpty(account.Notes) ? null : account.Notes;
         if (kind == "cookie")
             return (await (sessionStore?.ReadAsync(account.Id, ct) ?? Task.FromResult<AccountSession?>(null)))?.Cookies.FirstOrDefault(c => c.Name == ".ROBLOSECURITY" && (c.Domain == ".roblox.com" || c.Domain == "roblox.com"))?.Value;
@@ -460,6 +467,17 @@ public sealed class AccountsViewModel : ObservableObject
             SavePreferences();
         }
     }
+    public bool HideUsernames
+    {
+        get => preferences.HideUsernames;
+        set
+        {
+            if (preferences.HideUsernames == value) return;
+            preferences.HideUsernames = value;
+            foreach (var row in all) row.HideUsername = value;
+            Changed(); SavePreferences();
+        }
+    }
     public bool AutoCheckSessions
     {
         get => preferences.AutoCheckSessions; set
@@ -509,7 +527,7 @@ public sealed class AccountsViewModel : ObservableObject
     public async Task LoadAsync()
     {
         var id = Selected?.Id;
-        all = (await repository.GetAllAsync()).Select(a => new AccountRow(a) { IsFavorite = preferences.FavoriteAccounts.Contains(a.Id) }).ToList();
+        all = (await repository.GetAllAsync()).Select(a => new AccountRow(a) { IsFavorite = preferences.FavoriteAccounts.Contains(a.Id), HideUsername = preferences.HideUsernames }).ToList();
         if (groupRepository is not null)
         {
             Groups.Clear();
@@ -679,15 +697,24 @@ public sealed class AccountsViewModel : ObservableObject
         Changed(nameof(AttentionCount));
     }
     private GameInstance? lastReportedLaunch;
+    private int lastReportedLaunchCount = -1;
     public void RefreshActivity()
     {
+        var activityChanged = false;
         foreach (var row in all)
-            row.ProcessId = tracker.GetLiveProcessId(row.Id);
-        Filter();
-        Changed(nameof(SessionLabel));
-        Changed(nameof(LaunchStatus));
-        Changed(nameof(LaunchCount));
-        var current = instances?.Instances.FirstOrDefault(item => item.AccountId == Selected?.Id);
+        {
+            var pid = tracker.GetLiveProcessId(row.Id);
+            if (row.ProcessId == pid) continue;
+            row.ProcessId = pid;
+            activityChanged = true;
+        }
+        if (activityChanged) { Filter(); Changed(nameof(SessionLabel)); }
+        var snapshot = instances?.Instances ?? [];
+        var current = snapshot.FirstOrDefault(item => item.AccountId == Selected?.Id);
+        var count = snapshot.Count(item => item.State is InstanceState.Queued or InstanceState.Starting or InstanceState.Backoff);
+        if (activityChanged || current != lastReportedLaunch) Changed(nameof(LaunchStatus));
+        if (count != lastReportedLaunchCount) Changed(nameof(LaunchCount));
+        lastReportedLaunchCount = count;
         if (current != lastReportedLaunch && current is { State: InstanceState.Failed or InstanceState.AwaitingProcess, Detail: not null })
             Status = current.Detail;
         lastReportedLaunch = current;
