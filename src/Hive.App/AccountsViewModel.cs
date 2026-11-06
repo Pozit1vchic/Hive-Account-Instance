@@ -613,6 +613,12 @@ public sealed class AccountsViewModel : ObservableObject
         SavePreferences();
         Status = "Place saved.";
     }
+    public void RemoveSavedPlace(SavedPlace saved)
+    {
+        if (!preferences.SavedPlaces.Remove(saved)) return;
+        SavePreferences();
+        Status = "Saved target removed.";
+    }
     public Task CreateGroupAsync(string name) => RunAsync(async () =>
     {
         if (groupRepository is null)

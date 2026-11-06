@@ -200,6 +200,14 @@ public partial class MainWindow : Window
             menu.Items.Add(new Separator());
         foreach (var saved in model.SavedPlaces.ToList())
             menu.Items.Add(MenuEntry(saved.Kind + " / " + saved.PlaceId, "play", (_, _) => model.LoadSavedPlace(saved)));
+        if (model.SavedPlaces.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            var remove = new MenuItem { Header = "Remove saved target" };
+            foreach (var saved in model.SavedPlaces.ToList())
+                remove.Items.Add(MenuEntry(saved.Kind + " / " + saved.PlaceId, "trash", (_, _) => model.RemoveSavedPlace(saved)));
+            menu.Items.Add(remove);
+        }
         OpenMenu(menu, (FrameworkElement)sender);
     }
     private async void CreateGroup(object? sender, RoutedEventArgs e)

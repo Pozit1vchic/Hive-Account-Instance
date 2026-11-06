@@ -40,6 +40,8 @@ internal static class ProfileChecks
         if (json.Contains("private-test-code") || preferences.SavedPlaces.Count != 1) throw new Exception("Private invite was stored in plaintext or duplicated");
         var reopened = AppPreferences.Load(preferencePath);
         if (!reopened.PrivateInvite.Contains("private-test-code") || reopened.LaunchKind != LaunchKind.PrivateServer) throw new Exception("Encrypted private target did not survive preferences reload");
+        vm.RemoveSavedPlace(preferences.SavedPlaces.Single());
+        if (AppPreferences.Load(preferencePath).SavedPlaces.Count != 0 || !AppPreferences.Load(preferencePath).PrivateInvite.Contains("private-test-code")) throw new Exception("Saved target removal did not persist or changed the active target");
         await accounts.DeleteAsync("profile-account"); if ((await profiles.GetAllAsync()).Count != 0) throw new Exception("Account deletion did not cascade to profile metadata"); await vm.ShutdownAsync();
         Console.WriteLine("PASS: browser-profile CRUD, metadata persistence, account session restoration, open-profile protection, cache archive/reset, path guard, cascade deletion and encrypted saved private targets.");
     }
