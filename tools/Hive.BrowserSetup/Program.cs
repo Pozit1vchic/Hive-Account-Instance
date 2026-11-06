@@ -71,6 +71,10 @@ try
             await session.SubmitLoginAsync();
             if (!await managedPage.EvaluateExpressionAsync<bool>("window.hiveNewSubmitted === 1 && document.querySelector('[name=username]').value === 'fixture-user' && document.querySelector('[name=password]').value === 'fixture-password'")) throw new Exception("Updated sign-in form was not submitted once.");
             Console.WriteLine("PASS: updated sign-in form selectors and submission.");
+            await managedPage.SetContentAsync("<html><body><input id='login-username'><input id='login-password' type='password' oninput=\"document.querySelector('#login-username').value=''\"><button id='login-button'>Log In</button></body></html>");
+            try { await session.FillLoginAsync("fixture-user", "fixture-password"); throw new Exception("A form that erased the username was accepted."); }
+            catch (BrowserPageLoadException) { }
+            Console.WriteLine("PASS: unstable sign-in form is rejected before submission.");
         }
         Console.WriteLine("PASS: PuppeteerSharp + StealthPlugin launch, isolated context, navigation, cookie restore/read.");
     }

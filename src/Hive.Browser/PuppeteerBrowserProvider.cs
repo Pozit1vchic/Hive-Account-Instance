@@ -116,6 +116,11 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
                 }
                 await ReplaceAsync(userInput, username);
                 await ReplaceAsync(passwordInput, password);
+                await Task.Delay(250, ct);
+                EnsureLoginPage(page);
+                if (!await userInput.EvaluateFunctionAsync<bool>("(input, expected) => input.isConnected && input.value === expected", username).WaitAsync(ct) ||
+                    !await passwordInput.EvaluateFunctionAsync<bool>("(input, expected) => input.isConnected && input.value === expected", password).WaitAsync(ct))
+                    throw new BrowserPageLoadException("The sign-in form changed while it was being filled.");
             }
             catch (Exception ex) when (!ct.IsCancellationRequested && ex is PuppeteerException or TimeoutException) { throw new BrowserPageLoadException("The sign-in form did not finish loading.", ex); }
         }
