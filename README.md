@@ -19,7 +19,7 @@ A ready framework-dependent build is published to `artifacts/Hive/Hive.App.exe`.
 - **Open browser** verifies the selected account and restores its encrypted cookies into an isolated private browser context. Changed browser cookies are checked against the expected account before storage. Windows close when Hive exits.
 - A row double-click or **Edit** in its context menu opens a separate details dialog for the local alias, description and optional password. There is no permanent credential inspector. Leaving the password field empty preserves the stored password. Passwords are masked by default; Settings > Accounts can reveal them. Imported aliases are preserved as account metadata.
 - **Session** shows validation state, allows explicit reauthentication or cookie import, and provides manual account-to-PID assignment.
-- **Import RAM** previews a readable/decrypted `AccountData.json` account array. It imports username, alias, description, password and cookie. Existing usernames are skipped; the batch is transactional. Imported sessions remain unverified until checked. The importer does not decrypt RAM's machine/password encryption formats or import arbitrary scripts/settings.
+- **Import RAM** previews a plaintext or default Windows-DPAPI `AccountData.json` account array. Default-encrypted files must be imported on the original Windows computer (and, for user-scoped files, account). It imports username, alias, description, password and cookie. Existing usernames are skipped; the batch is transactional. Imported sessions remain unverified until checked. Password-locked files and arbitrary scripts/settings are not imported.
 
 ## Workspace and utilities
 

@@ -346,7 +346,7 @@ public partial class MainWindow : Window
             model.Status = "Import is unavailable.";
             return;
         }
-        var picker = new OpenFileDialog { Title = "Import a decrypted RAM AccountData.json", Filter = "RAM account data (*.json)|*.json", CheckFileExists = true };
+        var picker = new OpenFileDialog { Title = "Import RAM account data", Filter = "RAM account data (*.json;*.backup)|*.json;*.backup|All files (*.*)|*.*", CheckFileExists = true };
         if (picker.ShowDialog(this) != true)
             return;
         try
@@ -356,14 +356,14 @@ public partial class MainWindow : Window
                 model.Status = "Choose a JSON file smaller than 16 MB.";
                 return;
             }
-            var items = RamImportService.Parse(await File.ReadAllTextAsync(picker.FileName));
+            var items = RamImportService.Parse(Hive.Infrastructure.RamDataDecoder.Decode(await File.ReadAllBytesAsync(picker.FileName)));
             var preview = new RamImportWindow(items) { Owner = this };
             if (preview.ShowDialog() != true)
                 return;
             await model.ImportRamAsync(importer, items);
         }
         catch (JsonException) { model.Status = "This file is not readable RAM JSON. Export/decrypt it in RAM first."; }
-        catch (FormatException) { model.Status = "Unsupported RAM data. Choose a decrypted account array with valid fields."; }
+        catch (FormatException error) { model.Status = error.Message; }
         catch (Exception) { model.Status = "Import could not finish. Existing accounts have not been replaced."; }
     }
 }

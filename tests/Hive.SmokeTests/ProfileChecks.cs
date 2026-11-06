@@ -12,6 +12,16 @@ internal static class ProfileChecks
 {
     public static async Task RunAsync(string folder)
     {
+        var ramJson = "[{\"Username\":\"LegacyUser\",\"SecurityToken\":\"fixture-cookie\"}]";
+        var legacyEntropy = System.Text.Encoding.ASCII.GetBytes("ROBLOX ACCOUNT MANAGER | :) | BROUGHT TO YOU BUY ic3w0lf");
+        foreach (var scope in new[] { System.Security.Cryptography.DataProtectionScope.CurrentUser, System.Security.Cryptography.DataProtectionScope.LocalMachine })
+        {
+            var encryptedRam = System.Security.Cryptography.ProtectedData.Protect(System.Text.Encoding.UTF8.GetBytes(ramJson), legacyEntropy, scope);
+            if (RamImportService.Parse(RamDataDecoder.Decode(encryptedRam)).Single().Username != "LegacyUser") throw new Exception("Legacy DPAPI import failed");
+        }
+        if (RamImportService.Parse(RamDataDecoder.Decode(System.Text.Encoding.UTF8.GetBytes("\uFEFF " + ramJson))).Count != 1) throw new Exception("Plain RAM import with BOM failed");
+        try { RamDataDecoder.Decode(System.Text.Encoding.ASCII.GetBytes("Roblox Account Manager created by ic3w0lf22 @ github.com ......")); throw new Exception("Password locked RAM file accepted"); }
+        catch (FormatException error) when (error.Message.Contains("password locked")) { }
         var startupKey = @"Software\HiveSmokeTests\" + Guid.NewGuid().ToString("N");
         try
         {
