@@ -33,6 +33,18 @@ internal static class VisualChecks
         PresentationTraceSources.DataBindingSource.Listeners.Add(listener);
         var window = new MainWindow(vm) { Width = 1100, Height = 700 };
         window.Show();
+        var accountsTable = (DataGrid)window.FindName("AccountsTable");
+        var accountMenu = accountsTable.ContextMenu;
+        accountMenu.PlacementTarget = accountsTable;
+        accountMenu.IsOpen = true;
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        var copyMenu = accountMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Copy"));
+        copyMenu.IsSubmenuOpen = true;
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        if (copyMenu.Template.FindName("PART_Popup", copyMenu) is not System.Windows.Controls.Primitives.Popup { IsOpen: true } || copyMenu.Items.Count != 8)
+            throw new Exception("Copy submenu did not open with its actions");
+        copyMenu.IsSubmenuOpen = false;
+        accountMenu.IsOpen = false;
         var resizeProbe = new Window { Width = 1200, Height = 800, Title = "Hive window sizing check", Owner = window };
         resizeProbe.Show();
         if (!Hive.Infrastructure.RobloxWindowSizer.ApplyCompactBounds(new System.Windows.Interop.WindowInteropHelper(resizeProbe).Handle))
