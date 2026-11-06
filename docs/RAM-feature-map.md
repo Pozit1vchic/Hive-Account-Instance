@@ -10,7 +10,7 @@ Compared the archived upstream RAM `AccountManager.Designer.cs`, `Forms/AccountU
 | Groups and account moves | Implemented; RAM group-copy and expand/collapse controls are not implemented |
 | Place, Job, private server and follow user ID | Follow-by-name resolves a user ID and prepares the launcher; recent Place IDs are retained after queueing, while game metadata and server browsing are not implemented |
 | Async launches, delay, multi-instance and automatic rejoin | Implemented for process exits; detection of disconnect while the process remains open is not implemented |
-| Session refresh and account checks | Implemented with backoff; RAM plaintext and default Windows DPAPI files import on their original machine, while password-locked files are not implemented |
+| Session refresh and account checks | Implemented with backoff; RAM plaintext, default Windows DPAPI and password-locked account files are supported |
 | Roblox presence | Explicit on-demand lookup implemented; periodic refresh and online-friends views are not implemented |
 | Account privacy, password, email, display name, friends and group mutations | Official account/security/privacy pages open interactively; direct mutations, friend and group tools are not implemented |
 | Windows startup, recent games, FPS and client flags | Opt-in Windows startup and recent Place IDs implemented; FPS and client flags are not implemented |

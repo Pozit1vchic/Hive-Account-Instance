@@ -356,7 +356,19 @@ public partial class MainWindow : Window
                 model.Status = "Choose a JSON file smaller than 16 MB.";
                 return;
             }
-            var items = RamImportService.Parse(Hive.Infrastructure.RamDataDecoder.Decode(await File.ReadAllBytesAsync(picker.FileName)));
+            var data = await File.ReadAllBytesAsync(picker.FileName);
+            string json;
+            if (Hive.Infrastructure.RamDataDecoder.IsPasswordLocked(data))
+            {
+                var prompt = new RamPasswordWindow { Owner = this };
+                if (prompt.ShowDialog() != true) { prompt.Forget(); return; }
+                var password = prompt.Password;
+                prompt.Forget();
+                try { json = await Task.Run(() => Hive.Infrastructure.RamDataDecoder.Decode(data, password)); }
+                finally { password = ""; }
+            }
+            else json = Hive.Infrastructure.RamDataDecoder.Decode(data);
+            var items = RamImportService.Parse(json);
             var preview = new RamImportWindow(items) { Owner = this };
             if (preview.ShowDialog() != true)
                 return;
