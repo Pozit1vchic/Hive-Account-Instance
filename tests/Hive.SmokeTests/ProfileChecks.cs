@@ -12,6 +12,21 @@ internal static class ProfileChecks
 {
     public static async Task RunAsync(string folder)
     {
+        var testLogs = Path.Combine(folder, "log-locator"); Directory.CreateDirectory(testLogs);
+        var logPath = Path.Combine(testLogs, "test_Player_A1B2_last.log");
+        await File.WriteAllTextAsync(logPath, "fixture");
+        await using (var heldLog = new FileStream(logPath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            var started = process.StartTime.ToUniversalTime();
+            var owner = RestartManagerFileOwners.GetOwners(logPath).SingleOrDefault(x => x.ProcessId == process.Id);
+            if (owner is null || Math.Abs((owner.StartedUtc - started).TotalSeconds) >= 1) throw new Exception("Windows did not identify the test log owner and start time");
+            if (new RobloxLogLocator(testLogs).Find(process.Id, started) != logPath) throw new Exception("Log locator failed to identify an owned log");
+            if (new RobloxLogLocator(testLogs).Find(process.Id, started.AddMinutes(-10)) is not null) throw new Exception("Log locator accepted a reused process ID");
+            var other = Path.Combine(testLogs, "test_Player_C3D4_last.log"); await File.WriteAllTextAsync(other, "fixture");
+            var ambiguous = new RobloxLogLocator(testLogs, _ => [new(process.Id, started)]);
+            if (ambiguous.Find(process.Id, started) is not null) throw new Exception("Log locator accepted ambiguous process logs");
+        }
         var frameSettingsPath = Path.Combine(folder, "roblox-frame-test.xml");
         var originalFrameSettings = "<roblox><Item><Properties><int name=\"FramerateCap\">-1</int><int name=\"Other\">42</int></Properties></Item></roblox>";
         await File.WriteAllTextAsync(frameSettingsPath, originalFrameSettings);
