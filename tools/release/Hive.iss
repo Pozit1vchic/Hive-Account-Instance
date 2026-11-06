@@ -30,3 +30,13 @@ Name: "{autodesktop}\Hive"; Filename: "{app}\Hive.App.exe"; Tasks: desktopicon
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
 [Run]
 Filename: "{app}\Hive.App.exe"; Description: "Open Hive"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var StartupCommand: String;
+begin
+  if CurUninstallStep = usUninstall then
+    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Hive', StartupCommand) then
+      if CompareText(StartupCommand, '"' + ExpandConstant('{app}\Hive.App.exe') + '"') = 0 then
+        RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Hive');
+end;
