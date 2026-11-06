@@ -101,24 +101,26 @@ internal static class BrowserFlowChecks
     }
     private sealed class ParallelBrowsers : IBrowserProvider
     {
-        public List<SessionFixture> Sessions { get; } = [];
+        public System.Collections.Concurrent.ConcurrentBag<SessionFixture> Sessions { get; } = [];
+        private int opened;
         public TaskCompletionSource TwoOpened { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default)
         {
-            var session = new SessionFixture(); Sessions.Add(session); if (Sessions.Count == 2) TwoOpened.TrySetResult();
+            var session = new SessionFixture(); Sessions.Add(session); if (Interlocked.Increment(ref opened) == 2) TwoOpened.TrySetResult();
             return Task.FromResult<IBrowserSession>(session);
         }
     }
     private sealed class SessionFixture : IBrowserSession
     {
-        public int ConsentCalls { get; private set; }
+        private int consentCalls;
+        public int ConsentCalls => Volatile.Read(ref consentCalls);
         public int SubmitCalls { get; private set; }
         public int NavigateCalls { get; private set; }
         public int FailedNavigations { get; set; }
         public int FailedFills { get; set; }
         public bool RateLimited { get; set; }
         public Task SubmitLoginAsync(CancellationToken ct = default) { SubmitCalls++; return Task.CompletedTask; }
-        public Task AcceptCookieConsentAsync(CancellationToken ct = default) { ConsentCalls++; return Task.CompletedTask; }
+        public Task AcceptCookieConsentAsync(CancellationToken ct = default) { Interlocked.Increment(ref consentCalls); return Task.CompletedTask; }
         public bool CompleteSignIn
         {
             get; set;

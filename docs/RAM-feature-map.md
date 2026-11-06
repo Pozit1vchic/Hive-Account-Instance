@@ -13,7 +13,7 @@ Compared the archived upstream RAM `AccountManager.Designer.cs`, `Forms/AccountU
 | Session refresh and account checks | Implemented with backoff; password-locked RAM import formats are not implemented |
 | Roblox presence | Explicit on-demand lookup implemented; periodic refresh and online-friends views are not implemented |
 | Account privacy, password, email, display name, friends and group mutations | Official account/security/privacy pages open interactively; direct mutations, friend and group tools are not implemented |
-| Windows startup, recent games, FPS and client flags | Not implemented |
+| Windows startup, recent games, FPS and client flags | Opt-in Windows startup and recent Place IDs implemented; FPS and client flags are not implemented |
 | Theme editor | Light/Dusk and accent choices exist; full custom theme editor is not implemented |
 | Local API / account control | Optional current-user MCP status/launch implemented; RAM web server and remote phone access are not implemented |
 | Authentication ticket / rbx-player link copy | Not implemented; these values grant account access and must not be logged |

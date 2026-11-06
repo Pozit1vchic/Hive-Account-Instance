@@ -385,6 +385,20 @@ public sealed class AccountsViewModel : ObservableObject
         }
     }
     public bool EffectiveMotion => AnimationsEnabled && System.Windows.SystemParameters.ClientAreaAnimation;
+    public bool StartWithWindows
+    {
+        get
+        {
+            try { return new Hive.Infrastructure.WindowsStartup().IsEnabled(); }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or System.IO.IOException) { return false; }
+        }
+        set
+        {
+            try { new Hive.Infrastructure.WindowsStartup().SetEnabled(value); preferencesStatus = value ? "Windows startup enabled." : "Windows startup disabled."; }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or System.IO.IOException or InvalidOperationException) { preferencesStatus = ex.Message; }
+            Changed(); Changed(nameof(PreferencesStatus));
+        }
+    }
     public bool CompactRows
     {
         get => preferences.CompactRows; set

@@ -12,6 +12,22 @@ internal static class ProfileChecks
 {
     public static async Task RunAsync(string folder)
     {
+        var startupKey = @"Software\HiveSmokeTests\" + Guid.NewGuid().ToString("N");
+        try
+        {
+            var startup = new WindowsStartup(startupKey, Environment.ProcessPath!);
+            if (startup.IsEnabled()) throw new Exception("Startup was enabled by default");
+            startup.SetEnabled(true);
+            if (!startup.IsEnabled()) throw new Exception("Startup registration failed");
+            startup.SetEnabled(false);
+            if (startup.IsEnabled()) throw new Exception("Startup removal failed");
+            startup.SetEnabled(true);
+            using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(startupKey, true)!) key.SetValue("Hive", "another installation");
+            startup.SetEnabled(false);
+            using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(startupKey)!) if ((string?)key.GetValue("Hive") != "another installation") throw new Exception("Disabled another installation's startup");
+            try { startup.SetEnabled(true); throw new Exception("Overwrote another installation's startup"); } catch (InvalidOperationException) { }
+        }
+        finally { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(startupKey, false); }
         var database = new HiveDatabase(Path.Combine(folder,"profiles.db")); await database.InitializeAsync(); await database.InitializeAsync();
         var accounts = new AccountRepository(database); var profiles = new BrowserProfileRepository(database); var sessions = new SessionStore(database,new DpapiSecretProtector()); var credentials = new CredentialStore(database,new DpapiSecretProtector());
         await accounts.SaveAsync(new("profile-account","ProfileUser","",null,"",SessionState.Valid,901));
