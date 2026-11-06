@@ -98,6 +98,7 @@ try
     await PresenceChecks.RunAsync();
     await PersistenceChecks.RunAsync(folder);
     await BrowserFlowChecks.RunAsync(database, accounts, sessions, folder);
+    await DirectLoginChecks.RunAsync();
     await LaunchChecks.RunAsync(accounts, sessions);
     await AdvancedLaunchChecks.RunAsync();
     await ProfileChecks.RunAsync(folder);

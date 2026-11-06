@@ -55,6 +55,12 @@ internal static class BrowserFlowChecks
         if (vm.LastAddedCount != 1 || (await accounts.GetAllAsync()).Single().Username != "BrowserControl" || !vm.Status.Contains("1 sign-in page could not be loaded")) throw new Exception("One failed sign-in cancelled the rest of the batch");
         await vm.ShutdownAsync();
         await accounts.DeleteAsync((await accounts.GetAllAsync()).Single().Id);
+        var direct = new DirectLoginClient(jar => new DirectHandler(jar));
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions, directLogin: direct);
+        await vm.AddDirectCredentialsAsync([new("BrowserControl", "fixture-password")]);
+        var directlyAdded = (await accounts.GetAllAsync()).Single();
+        if (vm.LastAddedCount != 1 || await credentials.ReadPasswordAsync(directlyAdded.Id) != "fixture-password" || (await sessions.ReadAsync(directlyAdded.Id))?.Cookies.Single().Value != "fixture-direct-cookie") throw new Exception("Direct sign-in did not verify and persist the account without a browser");
+        await vm.ShutdownAsync(); await accounts.DeleteAsync(directlyAdded.Id);
         var brokenPage = new SessionFixture { FailedNavigations = 3 };
         try { await LoginPageLoader.PrepareAsync(brokenPage, new("local", "test")); throw new Exception("Broken page was accepted"); }
         catch (BrowserPageLoadException) { }
@@ -91,6 +97,14 @@ internal static class BrowserFlowChecks
     private sealed class IdentityHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":5001,\"name\":\"BrowserControl\"}") });
+    }
+    private sealed class DirectHandler(CookieContainer jar) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            jar.Add(new Cookie(".ROBLOSECURITY", "fixture-direct-cookie", "/", ".roblox.com") { Secure = true, HttpOnly = true });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
     }
     private sealed class MissingBrowser : IBrowserProvider
     {

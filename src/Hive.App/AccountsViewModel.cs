@@ -64,6 +64,7 @@ public sealed class AccountsViewModel : ObservableObject
     private readonly IAccountGroupRepository? groupRepository;
     private readonly IBrowserProfileRepository? profileRepository;
     private readonly Hive.Storage.AccountFieldsStore? fieldsStore;
+    private readonly DirectLoginClient? directLogin;
     private readonly string ProfileRoot;
     private readonly IMultiInstanceCoordinator? multiInstance;
     private readonly IAccountRepository repository; private readonly ICredentialStore credentials;
@@ -76,11 +77,12 @@ public sealed class AccountsViewModel : ObservableObject
     private string username = "", alias = "", notes = "", search = "", status = "Ready", processId = ""; private bool busy, settingsOpen;
     private Task? activeOperation;
     private CancellationTokenSource? loginCancellation;
-    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null, IBrowserProfileRepository? profileRepository = null, IMultiInstanceCoordinator? multiInstance = null, string? profileDirectory = null, Hive.Storage.AccountFieldsStore? fieldsStore = null)
+    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null, IBrowserProfileRepository? profileRepository = null, IMultiInstanceCoordinator? multiInstance = null, string? profileDirectory = null, Hive.Storage.AccountFieldsStore? fieldsStore = null, DirectLoginClient? directLogin = null)
     {
         ProfileRoot = System.IO.Path.GetFullPath(profileDirectory ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "BrowserProfiles"));
         this.profileRepository = profileRepository;
         this.fieldsStore = fieldsStore;
+        this.directLogin = directLogin;
         this.multiInstance = multiInstance;
         this.groupRepository = groupRepository;
         this.instances = instances;
@@ -871,6 +873,48 @@ public sealed class AccountsViewModel : ObservableObject
     }
     private readonly SemaphoreSlim onboardingSaveGate = new(1, 1);
     private bool optionalSaveIssue;
+    public Task AddDirectCredentialsAsync(IReadOnlyList<LoginCredential> entries) => RunAsync(async () =>
+    {
+        if (directLogin is null || onboarding is null) { Status = "Direct sign-in is unavailable."; return; }
+        using var batch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        loginCancellation = batch;
+        using var limit = new SemaphoreSlim(ParallelSignIns, ParallelSignIns);
+        var verification = 0; var failed = 0; var rateLimited = 0; var passwordFailures = 0;
+        try
+        {
+            Status = "Signing in...";
+            await Task.WhenAll(entries.Select(async entry =>
+            {
+                await limit.WaitAsync(batch.Token);
+                try
+                {
+                    batch.Token.ThrowIfCancellationRequested();
+                    if (Volatile.Read(ref rateLimited) != 0) return;
+                    DirectLoginResult result;
+                    try { result = await directLogin.LoginAsync(entry, batch.Token); }
+                    catch (System.Net.Http.HttpRequestException) { Interlocked.Increment(ref failed); return; }
+                    catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); return; }
+                    if (result.Status == DirectLoginStatus.RateLimited) { Interlocked.Exchange(ref rateLimited, 1); return; }
+                    if (result.Status == DirectLoginStatus.VerificationRequired) { Interlocked.Increment(ref verification); return; }
+                    if (result.Status != DirectLoginStatus.Success || result.Session is null) { Interlocked.Increment(ref failed); return; }
+                    await onboardingSaveGate.WaitAsync(batch.Token);
+                    try
+                    {
+                        var account = await onboarding.AddAsync(result.Session, batch.Token, entry.Username);
+                        if (account is null) { Interlocked.Increment(ref failed); return; }
+                        LastAddedCount++;
+                        try { await credentials.SavePasswordAsync(account.Id, entry.Password, batch.Token); }
+                        catch (Exception ex) when (ex is not OperationCanceledException) { Interlocked.Increment(ref passwordFailures); logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
+                    }
+                    finally { onboardingSaveGate.Release(); }
+                }
+                finally { limit.Release(); }
+            }));
+            if (LastAddedCount > 0) { SelectedGroup = null; Search = ""; FilterMode = "All"; await LoadAsync(); }
+            Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (verification > 0 ? $" {verification} require manual sign-in or verification." : "") + (failed > 0 ? $" {failed} could not be signed in." : "") + (rateLimited != 0 ? " Roblox rate-limited requests; retry later." : "") + (passwordFailures > 0 ? " Some passwords could not be saved." : "");
+        }
+        finally { loginCancellation = null; }
+    });
     public Task AddCredentialsAsync(IReadOnlyList<LoginCredential> entries) => RunAsync(async () =>
     {
         optionalSaveIssue = false;

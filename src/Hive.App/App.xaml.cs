@@ -36,6 +36,7 @@ public partial class App : Application
              services.AddSingleton<IBrowserProfileRepository, BrowserProfileRepository>();
              services.AddSingleton<ISessionStore, SessionStore>();
              services.AddSingleton<AccountOnboardingService>();
+             services.AddSingleton<DirectLoginClient>();
              services.AddSingleton<RamImportService>();
              services.AddSingleton<AccountFieldsStore>();
              services.AddSingleton<ICredentialStore, CredentialStore>();

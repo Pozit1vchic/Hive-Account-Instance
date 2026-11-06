@@ -45,7 +45,7 @@ public partial class AddAccountsWindow : Window
         };
         Hint.Text = mode switch
         {
-            "Credentials" => "Complete verification in the browser if asked.",
+            "Credentials" => "Sign in directly. If Roblox requires verification, use Manual Login.",
             "Cookies" => "One session cookie per line.",
             "Custom" => "Run a custom sign-in flow.",
             _ => "Sign in on Roblox."
@@ -80,7 +80,7 @@ public partial class AddAccountsWindow : Window
             ContinueButton.IsEnabled = false;
             InputPanels.IsEnabled = false;
             CancelButton.Content = "Cancel operation";
-            SetProgress("Opening browser...");
+            SetProgress(mode == "Credentials" ? "Signing in..." : "Opening browser...");
             var success = await SubmitAsync();
             submitting = false;
             if (success)

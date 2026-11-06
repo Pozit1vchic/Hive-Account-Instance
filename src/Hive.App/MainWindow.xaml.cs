@@ -282,13 +282,13 @@ public partial class MainWindow : Window
             if (mode == "Manual")
                 await ((AsyncCommand)model.AddBrowserCommand).ExecuteAsync();
             else if (mode == "Credentials")
-                await model.AddCredentialsAsync(dialog.Credentials);
+                await model.AddDirectCredentialsAsync(dialog.Credentials);
             else if (mode == "Cookies")
                 await model.AddCookiesAsync(dialog.Cookies);
             else
                 await model.AddCustomAsync(dialog.StartUrl!, dialog.Script);
             dialog.SetProgress(model.Status, model.LastAddedCount == 0);
-            return model.LastAddedCount > 0;
+            return model.LastAddedCount > 0 && (mode != "Credentials" || model.LastAddedCount == dialog.Credentials.Count);
         };
         dialog.CancelOperation = () => model.CancelLoginCommand.Execute(null);
         void UpdateProgress(object? sender, PropertyChangedEventArgs e)
