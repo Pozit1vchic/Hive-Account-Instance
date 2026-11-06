@@ -16,25 +16,27 @@ public sealed class RobloxProcessLauncher(IRobloxLaunchBroker broker, IAccountAc
                 throw new RobloxLaunchException("Install Roblox Player before launching a game.");
         }
         var spec = await broker.CreateLaunchAsync(request, ct);
+        ct.ThrowIfCancellationRequested();
         // Authentication tickets are deliberately never logged, copied to the clipboard, or shown in UI.
         using var bootstrap = Process.Start(new ProcessStartInfo(spec.ProtocolUri) { UseShellExecute = true });
+        // Once handed to Windows the launch cannot be recalled. Continue correlation so a
+        // cancelled request does not leave a real client untracked.
         var deadline = DateTimeOffset.UtcNow.AddSeconds(25);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            ct.ThrowIfCancellationRequested();
-            var pid = await Task.Run(() => FindProcess(spec.BrowserTrackerId), ct);
+            var pid = await Task.Run(() => FindProcess(spec.BrowserTrackerId));
             if (pid.HasValue)
             {
                 try
                 {
                     tracker.Attach(request.AccountId, pid.Value);
                     if (preferences?.CompactGameWindows != false)
-                        _ = RobloxWindowSizer.ResizeWhenReadyAsync(pid.Value, ct, preferences?.GameWindowWidth ?? 800, preferences?.GameWindowHeight ?? 500);
+                        _ = RobloxWindowSizer.ResizeWhenReadyAsync(pid.Value, CancellationToken.None, preferences?.GameWindowWidth ?? 800, preferences?.GameWindowHeight ?? 500);
                     return pid;
                 }
                 catch (ProcessAssignmentException) { }
             }
-            await Task.Delay(500, ct);
+            await Task.Delay(500);
         }
         return null;
     }

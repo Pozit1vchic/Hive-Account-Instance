@@ -79,7 +79,7 @@ internal static class BrowserFlowChecks
         if (parallel.Sessions.Count != 2) throw new Exception("More than two browser sign-ins opened concurrently");
         await ((AsyncCommand)vm.CancelLoginCommand).ExecuteAsync();
         await batch.WaitAsync(TimeSpan.FromSeconds(3));
-        if (parallel.Sessions.Any(s => s.IsOpen) || parallel.Sessions.Any(s => s.ConsentCalls == 0)) throw new Exception("Parallel cancellation or cookie consent handling failed");
+        if (parallel.Sessions.Any(s => s.IsOpen) || parallel.Sessions.Any(s => s.ConsentCalls == 0)) throw new Exception($"Parallel cancellation or cookie consent handling failed: {parallel.Sessions.Count} sessions, {parallel.Sessions.Count(s => s.IsOpen)} open, {parallel.Sessions.Count(s => s.ConsentCalls == 0)} without consent check");
         await vm.ShutdownAsync();
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
         await vm.AddCredentialsAsync([new("BrowserControl", "local-test-password")]);
@@ -112,6 +112,7 @@ internal static class BrowserFlowChecks
         public TaskCompletionSource TwoOpened { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var session = new SessionFixture(); Sessions.Add(session); if (Interlocked.Increment(ref opened) == 2) TwoOpened.TrySetResult();
             return Task.FromResult<IBrowserSession>(session);
         }

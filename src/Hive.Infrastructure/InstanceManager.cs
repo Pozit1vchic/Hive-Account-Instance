@@ -65,7 +65,9 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
         if (pending.TryGetValue(accountId, out var work))
         {
             try { work.Cancellation.Cancel(); } catch (ObjectDisposedException) { }
-            State(work, InstanceState.Exited, detail: "Launch cancelled.");
+            if (states.TryGetValue(accountId, out var current) && current.State == InstanceState.Starting)
+                State(work, InstanceState.Starting, detail: "Cancelling; checking whether Roblox already started.");
+            else State(work, InstanceState.Exited, detail: "Launch cancelled.");
         }
         else if (states.TryGetValue(accountId, out var state) && state.State == InstanceState.AwaitingProcess)
             states.TryUpdate(accountId, state with { State = InstanceState.Exited, Detail = "Process identification cancelled." }, state);
@@ -105,8 +107,8 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
         try
         {
             var pid = await dispatcher.DispatchAsync(work.Request, work.Cancellation.Token);
-            work.Cancellation.Token.ThrowIfCancellationRequested();
-            State(work, pid.HasValue ? InstanceState.Running : InstanceState.AwaitingProcess, pid, pid.HasValue ? null : "Launch sent; process identity could not be confirmed. Link its PID manually.");
+            var cancelled = work.Cancellation.IsCancellationRequested;
+            State(work, pid.HasValue ? InstanceState.Running : InstanceState.AwaitingProcess, pid, pid.HasValue ? (cancelled ? "Cancellation requested after Roblox started; automatic rejoin disabled." : null) : "Launch sent; process identity could not be confirmed. Link its PID manually.");
             if (pid.HasValue) runningSince[work.Request.AccountId] = DateTimeOffset.UtcNow;
         }
         catch (OperationCanceledException) when (work.Cancellation.IsCancellationRequested) { State(work, InstanceState.Exited, detail: "Launch cancelled."); }

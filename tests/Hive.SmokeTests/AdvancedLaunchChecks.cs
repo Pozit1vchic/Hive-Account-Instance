@@ -51,6 +51,19 @@ internal static class AdvancedLaunchChecks
             slowCancel.Release.TrySetResult();
             await Until(() => manager.Instances.Single().State == InstanceState.Exited);
         }
+        tracker = new Tracker(); var alreadySent = new SentDispatcher(tracker);
+        await using (var manager = new InstanceManager(alreadySent, tracker, TimeSpan.Zero, policy, TimeSpan.FromMilliseconds(10)))
+        {
+            await manager.EnqueueAsync(new("sent", 123, null));
+            await alreadySent.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            manager.Cancel("sent");
+            if (manager.Instances.Single().State != InstanceState.Starting) throw new Exception("In-flight launch falsely reported as cancelled");
+            alreadySent.Release.TrySetResult();
+            await Until(() => manager.Instances.Single().State == InstanceState.Running);
+            if (manager.Instances.Single().ProcessId != 1234) throw new Exception("Already dispatched process was lost after cancellation");
+            tracker.Detach("sent"); await Until(() => manager.Instances.Single().State == InstanceState.Exited); await Task.Delay(100);
+            if (alreadySent.Starts != 1) throw new Exception("Cancelled launch rejoined after exit");
+        }
         await using (var manager = new InstanceManager(denied,new Tracker(),TimeSpan.Zero,policy,TimeSpan.FromMilliseconds(10)))
         {
             await manager.EnqueueAsync(new("denied",123,null)); await Until(() => manager.Instances.Single().State == InstanceState.Failed); await Task.Delay(250);
@@ -128,6 +141,13 @@ internal static class AdvancedLaunchChecks
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task<int?> DispatchAsync(LaunchRequest request, CancellationToken ct) { Started.TrySetResult(); await Release.Task; ct.ThrowIfCancellationRequested(); return null; }
+    }
+    private sealed class SentDispatcher(Tracker tracker) : ILaunchDispatcher
+    {
+        public int Starts;
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<int?> DispatchAsync(LaunchRequest request, CancellationToken ct) { Interlocked.Increment(ref Starts); Started.TrySetResult(); await Release.Task; tracker.Attach(request.AccountId, 1234); return 1234; }
     }
     private sealed class RedirectHandler(bool external) : HttpMessageHandler
     {

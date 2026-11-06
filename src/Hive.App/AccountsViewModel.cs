@@ -884,7 +884,7 @@ public sealed class AccountsViewModel : ObservableObject
             await Task.WhenAll(entries.Select(async entry =>
             {
                 await limit.WaitAsync(batch.Token);
-                try { await AuthenticateAsync(null, entry, batchToken: batch.Token); }
+                try { batch.Token.ThrowIfCancellationRequested(); await AuthenticateAsync(null, entry, batchToken: batch.Token); }
                 catch (BrowserPageLoadException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); }
                 catch (TimeoutException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); }
                 catch { await batch.CancelAsync(); throw; }
