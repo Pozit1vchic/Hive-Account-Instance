@@ -7,10 +7,11 @@ public static class AccountLaunchTarget
     {
         if (mode == LaunchKind.FollowUser) return LaunchTarget.Parse(accountId, mode, target, argument);
         if (fields.TryGetValue("SavedPlaceId", out var savedPlace) && !string.IsNullOrWhiteSpace(savedPlace)) target = savedPlace;
-        if (fields.TryGetValue("SavedJobId", out var savedJob) && !string.IsNullOrWhiteSpace(savedJob))
+        if (fields.TryGetValue("SavedJobId", out var savedJob))
         {
             argument = savedJob;
-            mode = Uri.TryCreate(savedJob, UriKind.Absolute, out _) ? LaunchKind.PrivateServer : Guid.TryParse(savedJob, out _) ? LaunchKind.Server : LaunchKind.PrivateServer;
+            if (fields.TryGetValue("SavedTargetKind", out var kind) && Enum.TryParse<LaunchKind>(kind, out var parsed) && parsed is LaunchKind.Place or LaunchKind.Server or LaunchKind.PrivateServer) mode = parsed;
+            else mode = string.IsNullOrWhiteSpace(savedJob) ? LaunchKind.Place : Uri.TryCreate(savedJob, UriKind.Absolute, out _) ? LaunchKind.PrivateServer : Guid.TryParse(savedJob, out _) ? LaunchKind.Server : LaunchKind.PrivateServer;
         }
         return LaunchTarget.Parse(accountId, mode, target, argument);
     }

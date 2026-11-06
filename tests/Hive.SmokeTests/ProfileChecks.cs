@@ -86,9 +86,10 @@ internal static class ProfileChecks
         var launchVm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), browser, preferences, NullLogger<AccountsViewModel>.Instance, instances: captures, fieldsStore: fieldsStore);
         await launchVm.LoadAsync(); launchVm.LaunchMode = LaunchKind.Place; launchVm.LaunchTargetId = "321"; launchVm.LaunchArgument = "";
         await launchVm.SetAccountTargetAsync(["profile-account"], false);
-        launchVm.LaunchTargetId = "999"; await launchVm.LaunchAccountsAsync(["profile-account"]);
-        if (captures.Requests.Single().PlaceId != 321) throw new Exception("Per-account target was not used for launch");
+        launchVm.LaunchMode = LaunchKind.PrivateServer; launchVm.LaunchTargetId = "999"; launchVm.LaunchArgument = "global-private-code"; await launchVm.LaunchAccountsAsync(["profile-account"]);
+        if (captures.Requests.Single().PlaceId != 321 || captures.Requests.Single().Kind != LaunchKind.Place) throw new Exception("Per-account target inherited the shared private server");
         await launchVm.SetAccountTargetAsync(["profile-account"], true);
+        launchVm.LaunchMode = LaunchKind.Place;
         await launchVm.LaunchAccountsAsync(["profile-account"]);
         if (captures.Requests.Last().PlaceId != 999) throw new Exception("Cleared account target did not return to shared target");
         await launchVm.ShutdownAsync();

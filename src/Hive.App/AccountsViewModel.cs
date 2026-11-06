@@ -449,21 +449,25 @@ public sealed class AccountsViewModel : ObservableObject
     public string LaunchTargetId { get => LaunchMode == LaunchKind.FollowUser ? preferences.FollowUserId : PlaceId; set { if (LaunchMode == LaunchKind.FollowUser) { preferences.FollowUserId = value; SavePreferences(); } else PlaceId = value; Changed(); } }
     public string LaunchArgument { get => LaunchMode == LaunchKind.PrivateServer ? preferences.PrivateInvite : JobId; set { if (LaunchMode == LaunchKind.PrivateServer) { preferences.PrivateInvite = value; SavePreferences(); } else JobId = value; Changed(); } }
     private LaunchRequest BuildLaunchRequest(string id) => LaunchTarget.Parse(id, LaunchMode, LaunchTargetId, LaunchArgument);
-    private async Task<LaunchRequest> BuildAccountLaunchRequestAsync(string id)
+    private async Task<LaunchRequest> BuildAccountLaunchRequestAsync(string id, LaunchKind? selectedMode = null, string? selectedTarget = null, string? selectedArgument = null)
     {
-        var fields = fieldsStore is null || LaunchMode == LaunchKind.FollowUser ? new Dictionary<string, string>() : await fieldsStore.ReadAsync(id, lifetime.Token);
-        return AccountLaunchTarget.Resolve(id, LaunchMode, LaunchTargetId, LaunchArgument, fields);
+        var mode = selectedMode ?? LaunchMode;
+        var target = selectedTarget ?? LaunchTargetId;
+        var argument = selectedArgument ?? LaunchArgument;
+        var fields = fieldsStore is null || mode == LaunchKind.FollowUser ? new Dictionary<string, string>() : await fieldsStore.ReadAsync(id, lifetime.Token);
+        return AccountLaunchTarget.Resolve(id, mode, target, argument, fields);
     }
     public Task SetAccountTargetAsync(IReadOnlyList<string> ids, bool clear) => RunAsync(async () =>
     {
         if (fieldsStore is null || ids.Count == 0) { Status = "Select accounts first."; return; }
         if (!clear && LaunchMode == LaunchKind.FollowUser) { Status = "Select a place or server target first."; return; }
         if (!clear) { try { _ = BuildLaunchRequest(ids[0]); } catch (FormatException error) { Status = error.Message; return; } }
+        var target = LaunchTargetId; var argument = LaunchArgument; var mode = LaunchMode;
         foreach (var id in ids.Distinct())
         {
             var fields = await fieldsStore.ReadAsync(id, lifetime.Token);
-            if (clear) { fields.Remove("SavedPlaceId"); fields.Remove("SavedJobId"); }
-            else { fields["SavedPlaceId"] = LaunchTargetId; if (string.IsNullOrWhiteSpace(LaunchArgument)) fields.Remove("SavedJobId"); else fields["SavedJobId"] = LaunchArgument; }
+            if (clear) { fields.Remove("SavedPlaceId"); fields.Remove("SavedJobId"); fields.Remove("SavedTargetKind"); }
+            else { fields["SavedPlaceId"] = target; fields["SavedJobId"] = argument; fields["SavedTargetKind"] = mode.ToString(); }
             await fieldsStore.SaveAsync(id, fields, lifetime.Token);
         }
         Status = clear ? "Account targets cleared." : "Target saved for selected accounts.";
@@ -720,13 +724,14 @@ public sealed class AccountsViewModel : ObservableObject
             return;
         }
         LaunchRequest? target = null;
+        var selectedMode = LaunchMode; var selectedTarget = LaunchTargetId; var selectedArgument = LaunchArgument;
         var queued = 0;
         var invalid = 0;
         foreach (var id in ids.Distinct())
         {
             try
             {
-                var request = await BuildAccountLaunchRequestAsync(id);
+                var request = await BuildAccountLaunchRequestAsync(id, selectedMode, selectedTarget, selectedArgument);
                 await instances.EnqueueAsync(request, lifetime.Token);
                 target ??= request;
                 queued++;
