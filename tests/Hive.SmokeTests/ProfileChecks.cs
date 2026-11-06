@@ -42,6 +42,15 @@ internal static class ProfileChecks
         if (!reopened.PrivateInvite.Contains("private-test-code") || reopened.LaunchKind != LaunchKind.PrivateServer) throw new Exception("Encrypted private target did not survive preferences reload");
         vm.RemoveSavedPlace(preferences.SavedPlaces.Single());
         if (AppPreferences.Load(preferencePath).SavedPlaces.Count != 0 || !AppPreferences.Load(preferencePath).PrivateInvite.Contains("private-test-code")) throw new Exception("Saved target removal did not persist or changed the active target");
+        for (var i = 1; i <= 10; i++) preferences.RememberPlace(new("profile-account", i, null));
+        preferences.RememberPlace(new("profile-account", 5, null, LaunchKind.PrivateServer, AccessCode: "secret-recent-code"));
+        preferences.RememberPlace(new("profile-account", 0, null, LaunchKind.FollowUser, FollowUserId: 99));
+        preferences.Save();
+        if (preferences.RecentPlaceIds.Count != 8 || preferences.RecentPlaceIds[0] != 5 || (await File.ReadAllTextAsync(preferencePath)).Contains("secret-recent-code")) throw new Exception("Recent places order, bound, or secret protection failed");
+        vm.LoadRecentPlace(5);
+        if (vm.LaunchMode != LaunchKind.Place || vm.LaunchTargetId != "5" || vm.LaunchArgument != "") throw new Exception("Recent place did not reset the launch target");
+        vm.ClearRecentPlaces();
+        if (AppPreferences.Load(preferencePath).RecentPlaceIds.Count != 0) throw new Exception("Recent place removal did not persist");
         await accounts.DeleteAsync("profile-account"); if ((await profiles.GetAllAsync()).Count != 0) throw new Exception("Account deletion did not cascade to profile metadata"); await vm.ShutdownAsync();
         Console.WriteLine("PASS: browser-profile CRUD, metadata persistence, account session restoration, open-profile protection, cache archive/reset, path guard, cascade deletion and encrypted saved private targets.");
     }

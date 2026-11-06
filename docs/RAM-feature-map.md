@@ -8,7 +8,7 @@ Compared the archived upstream RAM `AccountManager.Designer.cs`, `Forms/AccountU
 | Account removal, username/password/combo/cookie/profile/user-ID copy | Implemented |
 | Username masking, alias and description | Table-name masking, editable alias and description implemented; masking is cosmetic and other windows can still show names |
 | Groups and account moves | Implemented; RAM group-copy and expand/collapse controls are not implemented |
-| Place, Job, private server and follow user ID | Follow-by-name resolves a user ID and prepares the launcher; recent games/server browsing are not implemented |
+| Place, Job, private server and follow user ID | Follow-by-name resolves a user ID and prepares the launcher; recent Place IDs are retained after queueing, while game metadata and server browsing are not implemented |
 | Async launches, delay, multi-instance and automatic rejoin | Implemented for process exits; detection of disconnect while the process remains open is not implemented |
 | Session refresh and account checks | Implemented with backoff; password-locked RAM import formats are not implemented |
 | Roblox presence | Explicit on-demand lookup implemented; periodic refresh and online-friends views are not implemented |

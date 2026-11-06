@@ -11,6 +11,14 @@ public sealed class AppPreferences : Hive.Core.IGameWindowPreferences, Hive.Core
     }
     public List<string> FavoriteAccounts { get; set; } = [];
     public List<SavedPlace> SavedPlaces { get; set; } = [];
+    public List<long> RecentPlaceIds { get; set; } = [];
+    public void RememberPlace(Hive.Core.LaunchRequest request)
+    {
+        if (request.Kind == Hive.Core.LaunchKind.FollowUser || request.PlaceId <= 0) return;
+        RecentPlaceIds.RemoveAll(id => id == request.PlaceId || id <= 0);
+        RecentPlaceIds.Insert(0, request.PlaceId);
+        if (RecentPlaceIds.Count > 8) RecentPlaceIds.RemoveRange(8, RecentPlaceIds.Count - 8);
+    }
     public string PlaceId { get; set; } = "";
     public string JobId { get; set; } = "";
     public Hive.Core.LaunchKind LaunchKind { get; set; }

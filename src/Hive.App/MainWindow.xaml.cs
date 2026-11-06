@@ -196,6 +196,15 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry("Save current place", "save", (_, _) => model.SaveCurrentPlace()));
+        if (model.RecentPlaceIds.Count > 0)
+        {
+            var recent = new MenuItem { Header = "Recent places" };
+            foreach (var id in model.RecentPlaceIds.ToList())
+                recent.Items.Add(MenuEntry(id.ToString(System.Globalization.CultureInfo.InvariantCulture), "play", (_, _) => model.LoadRecentPlace(id)));
+            recent.Items.Add(new Separator());
+            recent.Items.Add(MenuEntry("Clear history", "trash", (_, _) => model.ClearRecentPlaces()));
+            menu.Items.Add(recent);
+        }
         if (model.SavedPlaces.Count > 0)
             menu.Items.Add(new Separator());
         foreach (var saved in model.SavedPlaces.ToList())

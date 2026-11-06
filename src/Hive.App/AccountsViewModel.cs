@@ -290,6 +290,8 @@ public sealed class AccountsViewModel : ObservableObject
         LaunchRequest request;
         try { request = BuildLaunchRequest(Selected.Id); } catch (FormatException error) { Status = error.Message; return; }
         await instances.EnqueueAsync(request, lifetime.Token);
+        preferences.RememberPlace(request);
+        SavePreferences();
         Status = "Launch queued. Session and process identity will be verified.";
         Changed(nameof(LaunchStatus));
     }
@@ -602,6 +604,20 @@ public sealed class AccountsViewModel : ObservableObject
     }
     public string GroupLabel => SelectedGroup?.Name ?? "Groups";
     public IReadOnlyList<SavedPlace> SavedPlaces => preferences.SavedPlaces;
+    public IReadOnlyList<long> RecentPlaceIds => preferences.RecentPlaceIds;
+    public void LoadRecentPlace(long id)
+    {
+        if (id <= 0) return;
+        LaunchMode = LaunchKind.Place;
+        LaunchTargetId = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        LaunchArgument = "";
+    }
+    public void ClearRecentPlaces()
+    {
+        preferences.RecentPlaceIds.Clear();
+        SavePreferences();
+        Status = "Recent places cleared.";
+    }
     public void SaveCurrentPlace()
     {
         LaunchRequest request;
@@ -668,7 +684,8 @@ public sealed class AccountsViewModel : ObservableObject
             Status = "Select accounts to launch.";
             return;
         }
-        try { _ = BuildLaunchRequest(ids[0]); } catch (FormatException error) { Status = error.Message; return; }
+        LaunchRequest target;
+        try { target = BuildLaunchRequest(ids[0]); } catch (FormatException error) { Status = error.Message; return; }
         var queued = 0;
         foreach (var id in ids.Distinct())
         {
@@ -679,6 +696,7 @@ public sealed class AccountsViewModel : ObservableObject
             }
             catch (RobloxLaunchException) { }
         }
+        if (queued > 0) { preferences.RememberPlace(target); SavePreferences(); }
         Status = queued > 0 ? $"Queued {queued} accounts." : "Selected accounts are already running or queued.";
         Changed(nameof(LaunchStatus));
     });
