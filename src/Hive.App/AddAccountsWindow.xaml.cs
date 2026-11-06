@@ -103,6 +103,17 @@ public partial class AddAccountsWindow : Window
         Cookies = [];
         Script = "";
     }
+    public void RemoveCompletedCredentials(IReadOnlyCollection<string> usernames)
+    {
+        if (usernames.Count == 0) return;
+        var completed = usernames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var lines = BulkInput.Text.Split('\n').Where(line =>
+        {
+            var colon = line.IndexOf(':');
+            return colon < 1 || !completed.Contains(line[..colon].Trim());
+        });
+        BulkInput.Text = string.Join("\n", lines);
+    }
     private void CloseDialog(object sender, RoutedEventArgs e)
     {
         if (submitting)

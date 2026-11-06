@@ -873,8 +873,11 @@ public sealed class AccountsViewModel : ObservableObject
     }
     private readonly SemaphoreSlim onboardingSaveGate = new(1, 1);
     private bool optionalSaveIssue;
+    private ConcurrentBag<string> directCompleted = [];
+    public IReadOnlyList<string> LastDirectCompleted => directCompleted.ToArray();
     public Task AddDirectCredentialsAsync(IReadOnlyList<LoginCredential> entries) => RunAsync(async () =>
     {
+        directCompleted = [];
         if (directLogin is null || onboarding is null) { Status = "Direct sign-in is unavailable."; return; }
         using var batch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         loginCancellation = batch;
@@ -907,8 +910,8 @@ public sealed class AccountsViewModel : ObservableObject
                         catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "session verification timed out")); return; }
                         if (account is null) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "session not verified")); return; }
                         LastAddedCount++;
-                        try { await credentials.SavePasswordAsync(account.Id, entry.Password, batch.Token); }
-                        catch (Exception ex) when (ex is not OperationCanceledException) { Interlocked.Increment(ref passwordFailures); logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
+                        try { await credentials.SavePasswordAsync(account.Id, entry.Password, batch.Token); directCompleted.Add(entry.Username); }
+                        catch (Exception ex) when (ex is not OperationCanceledException) { Interlocked.Increment(ref passwordFailures); issues.Enqueue((entry.Username, "password could not be saved")); logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
                     }
                     finally { onboardingSaveGate.Release(); }
                 }

@@ -288,7 +288,13 @@ public partial class MainWindow : Window
             else
                 await model.AddCustomAsync(dialog.StartUrl!, dialog.Script);
             dialog.SetProgress(model.Status, model.LastAddedCount == 0);
-            return model.LastAddedCount > 0 && (mode != "Credentials" || model.LastAddedCount == dialog.Credentials.Count);
+            if (mode == "Credentials")
+            {
+                var complete = model.LastDirectCompleted.Count == dialog.Credentials.Count;
+                if (!complete) dialog.RemoveCompletedCredentials(model.LastDirectCompleted);
+                return complete && dialog.Credentials.Count > 0;
+            }
+            return model.LastAddedCount > 0;
         };
         dialog.CancelOperation = () => model.CancelLoginCommand.Execute(null);
         void UpdateProgress(object? sender, PropertyChangedEventArgs e)

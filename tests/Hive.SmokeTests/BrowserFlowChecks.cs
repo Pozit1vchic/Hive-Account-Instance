@@ -64,7 +64,7 @@ internal static class BrowserFlowChecks
         direct = new DirectLoginClient(jar => new DirectBatchHandler(jar));
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions, directLogin: direct);
         await vm.AddDirectCredentialsAsync([new("BrowserControl", "fixture-password"), new("NeedVerification", "fixture-password")]);
-        if (vm.LastAddedCount != 1 || !vm.Status.Contains("NeedVerification: manual sign-in required")) throw new Exception("Partial direct sign-in did not identify the account needing verification");
+        if (vm.LastAddedCount != 1 || !vm.Status.Contains("NeedVerification: manual sign-in required") || vm.LastDirectCompleted.Single() != "BrowserControl") throw new Exception("Partial direct sign-in did not identify completed and pending accounts");
         await vm.ShutdownAsync(); await accounts.DeleteAsync((await accounts.GetAllAsync()).Single().Id);
         preferences.HideUsernames = true;
         vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions, directLogin: direct);

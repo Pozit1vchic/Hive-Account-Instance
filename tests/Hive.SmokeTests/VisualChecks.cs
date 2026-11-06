@@ -88,6 +88,9 @@ internal static class VisualChecks
                 ((Button)add.FindName("ContinueButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 // Continue clears its transient parsed data after the operation; validate parsing separately.
                 if (Hive.Core.AccountInputParser.Credentials(input.Text).Count != 2) throw new Exception("Multiline credential parsing failed");
+                input.Text = " First :test:with:colons\nsecond:keep\nFIRST:duplicate";
+                add.RemoveCompletedCredentials(["first"]);
+                if (input.Text != "second:keep") throw new Exception("Completed credentials remained in the retry list");
                 input.Clear(); add.SetProgress("");
             }
             Capture(add, $"artifacts/add-{mode.ToLowerInvariant()}.png");
