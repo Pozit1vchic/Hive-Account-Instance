@@ -61,6 +61,16 @@ internal static class BrowserFlowChecks
         var directlyAdded = (await accounts.GetAllAsync()).Single();
         if (vm.LastAddedCount != 1 || await credentials.ReadPasswordAsync(directlyAdded.Id) != "fixture-password" || (await sessions.ReadAsync(directlyAdded.Id))?.Cookies.Single().Value != "fixture-direct-cookie") throw new Exception("Direct sign-in did not verify and persist the account without a browser");
         await vm.ShutdownAsync(); await accounts.DeleteAsync(directlyAdded.Id);
+        direct = new DirectLoginClient(jar => new DirectBatchHandler(jar));
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions, directLogin: direct);
+        await vm.AddDirectCredentialsAsync([new("BrowserControl", "fixture-password"), new("NeedVerification", "fixture-password")]);
+        if (vm.LastAddedCount != 1 || !vm.Status.Contains("NeedVerification: manual sign-in required")) throw new Exception("Partial direct sign-in did not identify the account needing verification");
+        await vm.ShutdownAsync(); await accounts.DeleteAsync((await accounts.GetAllAsync()).Single().Id);
+        preferences.HideUsernames = true;
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions, directLogin: direct);
+        await vm.AddDirectCredentialsAsync([new("NeedVerification", "fixture-password")]);
+        if (vm.Status.Contains("NeedVerification") || !vm.Status.Contains("manual sign-in")) throw new Exception("Direct sign-in ignored username masking");
+        preferences.HideUsernames = false; await vm.ShutdownAsync();
         var brokenPage = new SessionFixture { FailedNavigations = 3 };
         try { await LoginPageLoader.PrepareAsync(brokenPage, new("local", "test")); throw new Exception("Broken page was accepted"); }
         catch (BrowserPageLoadException) { }
@@ -104,6 +114,19 @@ internal static class BrowserFlowChecks
         {
             jar.Add(new Cookie(".ROBLOSECURITY", "fixture-direct-cookie", "/", ".roblox.com") { Secure = true, HttpOnly = true });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+    private sealed class DirectBatchHandler(CookieContainer jar) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            if (json.RootElement.GetProperty("cvalue").GetString() == "NeedVerification")
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.Forbidden); response.Headers.Add("rblx-challenge-id", "fixture"); return response;
+            }
+            jar.Add(new Cookie(".ROBLOSECURITY", "fixture-direct-cookie", "/", ".roblox.com") { Secure = true, HttpOnly = true });
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
     private sealed class MissingBrowser : IBrowserProvider

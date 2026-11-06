@@ -880,6 +880,7 @@ public sealed class AccountsViewModel : ObservableObject
         loginCancellation = batch;
         using var limit = new SemaphoreSlim(ParallelSignIns, ParallelSignIns);
         var verification = 0; var failed = 0; var rateLimited = 0; var passwordFailures = 0;
+        var issues = new ConcurrentQueue<(string Username, string Reason)>();
         try
         {
             Status = "Signing in...";
@@ -889,19 +890,22 @@ public sealed class AccountsViewModel : ObservableObject
                 try
                 {
                     batch.Token.ThrowIfCancellationRequested();
-                    if (Volatile.Read(ref rateLimited) != 0) return;
+                    if (Volatile.Read(ref rateLimited) != 0) { issues.Enqueue((entry.Username, "not attempted")); return; }
                     DirectLoginResult result;
                     try { result = await directLogin.LoginAsync(entry, batch.Token); }
-                    catch (System.Net.Http.HttpRequestException) { Interlocked.Increment(ref failed); return; }
-                    catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); return; }
-                    if (result.Status == DirectLoginStatus.RateLimited) { Interlocked.Exchange(ref rateLimited, 1); return; }
-                    if (result.Status == DirectLoginStatus.VerificationRequired) { Interlocked.Increment(ref verification); return; }
-                    if (result.Status != DirectLoginStatus.Success || result.Session is null) { Interlocked.Increment(ref failed); return; }
+                    catch (System.Net.Http.HttpRequestException) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "connection error")); return; }
+                    catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "timed out")); return; }
+                    if (result.Status == DirectLoginStatus.RateLimited) { Interlocked.Exchange(ref rateLimited, 1); issues.Enqueue((entry.Username, "rate limited")); return; }
+                    if (result.Status == DirectLoginStatus.VerificationRequired) { Interlocked.Increment(ref verification); issues.Enqueue((entry.Username, "manual sign-in required")); return; }
+                    if (result.Status != DirectLoginStatus.Success || result.Session is null) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "sign-in failed")); return; }
                     await onboardingSaveGate.WaitAsync(batch.Token);
                     try
                     {
-                        var account = await onboarding.AddAsync(result.Session, batch.Token, entry.Username);
-                        if (account is null) { Interlocked.Increment(ref failed); return; }
+                        Account? account;
+                        try { account = await onboarding.AddAsync(result.Session, batch.Token, entry.Username); }
+                        catch (System.Net.Http.HttpRequestException) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "session verification failed")); return; }
+                        catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "session verification timed out")); return; }
+                        if (account is null) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "session not verified")); return; }
                         LastAddedCount++;
                         try { await credentials.SavePasswordAsync(account.Id, entry.Password, batch.Token); }
                         catch (Exception ex) when (ex is not OperationCanceledException) { Interlocked.Increment(ref passwordFailures); logger.LogWarning("Optional password save failed ({ErrorType})", ex.GetType().Name); }
@@ -912,6 +916,11 @@ public sealed class AccountsViewModel : ObservableObject
             }));
             if (LastAddedCount > 0) { SelectedGroup = null; Search = ""; FilterMode = "All"; await LoadAsync(); }
             Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (verification > 0 ? $" {verification} require manual sign-in or verification." : "") + (failed > 0 ? $" {failed} could not be signed in." : "") + (rateLimited != 0 ? " Roblox rate-limited requests; retry later." : "") + (passwordFailures > 0 ? " Some passwords could not be saved." : "");
+            if (!HideUsernames && !issues.IsEmpty)
+            {
+                var details = issues.ToArray();
+                Status += " " + string.Join("; ", details.Take(5).Select(issue => $"{issue.Username}: {issue.Reason}")) + (details.Length > 5 ? $"; +{details.Length - 5} more" : "") + ".";
+            }
         }
         finally { loginCancellation = null; }
     });
