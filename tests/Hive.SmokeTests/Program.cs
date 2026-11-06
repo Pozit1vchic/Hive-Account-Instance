@@ -100,6 +100,7 @@ try
     await BrowserFlowChecks.RunAsync(database, accounts, sessions, folder);
     await DirectLoginChecks.RunAsync();
     await PublicServerChecks.RunAsync();
+    await DisconnectChecks.RunAsync(folder);
     await LaunchChecks.RunAsync(accounts, sessions);
     await AdvancedLaunchChecks.RunAsync();
     await ProfileChecks.RunAsync(folder);

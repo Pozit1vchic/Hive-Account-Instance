@@ -11,6 +11,9 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
     private readonly ILaunchPolicy? policy;
     private readonly TimeSpan? fixedSpacing;
     private readonly TimeSpan watchInterval;
+    private readonly IRobloxProcessDisconnectWatcher? disconnectWatcher;
+    private sealed record Monitor(int ProcessId, CancellationTokenSource Cancellation, Task Work);
+    private readonly Dictionary<string, Monitor> monitors = [];
     private readonly Channel<Work> queue = Channel.CreateBounded<Work>(50);
     private readonly ConcurrentDictionary<string, GameInstance> states = [];
     private readonly ConcurrentDictionary<string, LaunchRequest> targets = [];
@@ -24,9 +27,10 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
     private readonly Task scheduler;
     private readonly Task watcher;
 
-    public InstanceManager(ILaunchDispatcher dispatcher, IAccountActivityTracker tracker, TimeSpan? launchSpacing = null, ILaunchPolicy? policy = null, TimeSpan? watchInterval = null)
+    public InstanceManager(ILaunchDispatcher dispatcher, IAccountActivityTracker tracker, TimeSpan? launchSpacing = null, ILaunchPolicy? policy = null, TimeSpan? watchInterval = null, IRobloxProcessDisconnectWatcher? disconnectWatcher = null)
     {
         this.dispatcher = dispatcher; this.tracker = tracker; this.policy = policy; fixedSpacing = launchSpacing;
+        this.disconnectWatcher = disconnectWatcher;
         this.watchInterval = watchInterval ?? TimeSpan.FromSeconds(1);
         if (launchSpacing < TimeSpan.Zero || this.watchInterval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(launchSpacing));
         scheduler = ScheduleAsync(); watcher = WatchAsync();
@@ -160,13 +164,34 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
     }
     private async Task WatchAsync()
     {
-        try { while (!lifetime.IsCancellationRequested) { await Task.Delay(watchInterval, lifetime.Token); RefreshProcesses(); } }
+        try { while (!lifetime.IsCancellationRequested) { await Task.Delay(watchInterval, lifetime.Token); RefreshProcesses(); UpdateDisconnectMonitors(); } }
         catch (OperationCanceledException) { }
+        finally { foreach (var monitor in monitors.Values) monitor.Cancellation.Cancel(); }
+    }
+    private void UpdateDisconnectMonitors()
+    {
+        if (disconnectWatcher is null) return;
+        var eligible = policy?.AutoRejoin == true ? states.Values.Where(x => x.State == InstanceState.Running && x.ProcessId.HasValue && !stopped.ContainsKey(x.AccountId)).ToDictionary(x => x.AccountId, x => x.ProcessId!.Value) : new Dictionary<string, int>();
+        foreach (var (account, monitor) in monitors.ToArray())
+            if (!eligible.TryGetValue(account, out var pid) || pid != monitor.ProcessId)
+            {
+                monitor.Cancellation.Cancel(); monitors.Remove(account);
+                _ = monitor.Work.ContinueWith(task => { _ = task.Exception; monitor.Cancellation.Dispose(); }, TaskScheduler.Default);
+            }
+        foreach (var (account, pid) in eligible)
+        {
+            if (monitors.ContainsKey(account)) continue;
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            bool Current() => !cancellation.IsCancellationRequested && policy?.AutoRejoin == true && !stopped.ContainsKey(account) && states.TryGetValue(account, out var current) && current.State == InstanceState.Running && current.ProcessId == pid && tracker.GetLiveProcessId(account) == pid;
+            var task = disconnectWatcher.WatchAsync(pid, Current, cancellation.Token);
+            monitors.Add(account, new(pid, cancellation, task));
+        }
     }
     public void Dispose() { lifetime.Cancel(); queue.Writer.TryComplete(); }
     public async ValueTask DisposeAsync()
     {
-        Dispose(); try { await Task.WhenAll(scheduler, watcher); await Task.WhenAll(active.Values); } catch (OperationCanceledException) { }
+        Dispose(); try { await Task.WhenAll(scheduler, watcher); await Task.WhenAll(active.Values); await Task.WhenAll(monitors.Values.Select(x => x.Work)); } catch (OperationCanceledException) { }
+        foreach (var monitor in monitors.Values) monitor.Cancellation.Dispose(); monitors.Clear();
         foreach (var work in pending.Values) State(work, InstanceState.Exited, detail: "Launch cancelled."); pending.Clear();
     }
 }

@@ -9,7 +9,7 @@ Compared the archived upstream RAM `AccountManager.Designer.cs`, `Forms/AccountU
 | Username masking, alias and description | Table-name masking, editable alias and description implemented; masking is cosmetic and other windows can still show names |
 | Groups and account moves | Implemented; RAM group-copy and expand/collapse controls are not implemented |
 | Place, Job, private server and follow user ID | Follow-by-name, account-specific targets, recent Place IDs and paged public server browsing implemented; game metadata is not implemented |
-| Async launches, delay, multi-instance and automatic rejoin | Implemented for process exits; detection of disconnect while the process remains open is not implemented |
+| Async launches, delay, multi-instance and automatic rejoin | Process exits and sustained disconnect log detection feed bounded rejoin; log ownership and client window closure must succeed, and the complete live Roblox flow is not verified |
 | Session refresh and account checks | Implemented with backoff; RAM plaintext, default Windows DPAPI and password-locked account files are supported |
 | Roblox presence | Explicit on-demand lookup implemented; periodic refresh and online-friends views are not implemented |
 | Account privacy, password, email, display name, friends and group mutations | Official account/security/privacy pages open interactively; direct mutations, friend and group tools are not implemented |

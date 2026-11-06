@@ -48,6 +48,7 @@ public partial class App : Application
              services.AddSingleton<IAccountActivityTracker, AccountActivityTracker>();
              services.AddSingleton<IRobloxLaunchBroker>(sp => sp.GetRequiredService<SessionManager>());
              services.AddSingleton<ILaunchDispatcher, RobloxProcessLauncher>();
+             services.AddSingleton<IRobloxProcessDisconnectWatcher, RobloxProcessDisconnectWatcher>();
              services.AddSingleton<IInstanceManager, InstanceManager>();
              services.AddSingleton(AppPreferences.Load());
              services.AddSingleton<IGameWindowPreferences>(sp => sp.GetRequiredService<AppPreferences>());

@@ -21,6 +21,23 @@ internal static class AdvancedLaunchChecks
             if (dispatcher.Starts != 3 || dispatcher.MaxActive > 2 || manager.Instances.Single(x => x.AccountId == "c").State != InstanceState.Exited) throw new Exception("Cancelled queue entry launched or concurrency exceeded its limit");
         }
         policy.AutoRejoin = true; policy.MaxRejoinAttempts = 2; policy.RejoinDelaySeconds = 0.02;
+        tracker = new Tracker(); var watchedDispatcher = new ImmediateDispatcher(tracker); var watcherFixture = new DisconnectWatcherFixture(tracker);
+        await using (var manager = new InstanceManager(watchedDispatcher, tracker, TimeSpan.Zero, policy, TimeSpan.FromMilliseconds(10), watcherFixture))
+        {
+            await manager.EnqueueAsync(new("watcher", 123, null));
+            await watcherFixture.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            watcherFixture.Disconnect.TrySetResult();
+            await Until(() => watchedDispatcher.Starts == 2 && manager.Instances.Single().State == InstanceState.Running);
+            if (manager.Instances.Single().RejoinAttempts != 1) throw new Exception("Disconnected process did not use the existing rejoin queue");
+        }
+        tracker = new Tracker(); watchedDispatcher = new ImmediateDispatcher(tracker); watcherFixture = new DisconnectWatcherFixture(tracker);
+        await using (var manager = new InstanceManager(watchedDispatcher, tracker, TimeSpan.Zero, policy, TimeSpan.FromMilliseconds(10), watcherFixture))
+        {
+            await manager.EnqueueAsync(new("watcher", 123, null)); await watcherFixture.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            policy.AutoRejoin = false; await Task.Delay(50); watcherFixture.Disconnect.TrySetResult(); await Task.Delay(50);
+            if (watchedDispatcher.Starts != 1 || tracker.GetLiveProcessId("watcher") is null) throw new Exception("Disabled auto-rejoin closed or relaunched the client");
+        }
+        policy.AutoRejoin = true;
         tracker = new Tracker(); var immediate = new ImmediateDispatcher(tracker);
         await using (var manager = new InstanceManager(immediate, tracker, TimeSpan.Zero, policy, TimeSpan.FromMilliseconds(10)))
         {
@@ -148,6 +165,19 @@ internal static class AdvancedLaunchChecks
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task<int?> DispatchAsync(LaunchRequest request, CancellationToken ct) { Interlocked.Increment(ref Starts); Started.TrySetResult(); await Release.Task; tracker.Attach(request.AccountId, 1234); return 1234; }
+    }
+    private sealed class DisconnectWatcherFixture(Tracker tracker) : IRobloxProcessDisconnectWatcher
+    {
+        private int calls;
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disconnect { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task WatchAsync(int processId, Func<bool> stillCurrent, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref calls) > 1) { try { await Task.Delay(Timeout.InfiniteTimeSpan, ct); } catch (OperationCanceledException) { } return; }
+            Started.TrySetResult();
+            try { await Disconnect.Task.WaitAsync(ct); if (stillCurrent()) tracker.Detach("watcher"); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        }
     }
     private sealed class RedirectHandler(bool external) : HttpMessageHandler
     {
