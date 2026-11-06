@@ -3,7 +3,7 @@ using System.Text.Json;
 using Hive.Core;
 namespace Hive.Roblox;
 
-public sealed class AccountOnboardingService(IAccountRepository accounts, ISessionStore sessions, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null, IVerifiedAccountStore? verifiedStore = null)
+public sealed class AccountOnboardingService(IAccountRepository accounts, ISessionStore sessions, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null, IVerifiedAccountStore? verifiedStore = null, SessionOperationGate? coordinator = null)
 {
     public async Task<RobloxIdentity?> IdentifyAsync(AccountSession session, CancellationToken ct = default) => (await IdentifyCoreAsync(session, ct))?.Identity;
     private async Task<(RobloxIdentity Identity, AccountSession Session)?> IdentifyCoreAsync(AccountSession session, CancellationToken ct)
@@ -44,6 +44,9 @@ public sealed class AccountOnboardingService(IAccountRepository accounts, ISessi
         if (expectedUsername is not null && !identity.Username.Equals(expectedUsername, StringComparison.OrdinalIgnoreCase))
             return null;
         session = verified.Value.Session;
+        if (coordinator is not null) await coordinator.Semaphore.WaitAsync(ct);
+        try
+        {
         if (verifiedStore is not null) return await verifiedStore.SaveAsync(identity, session, ct);
         var known = await accounts.GetAllAsync(ct);
         var existing = known.FirstOrDefault(a => a.RobloxUserId == identity.Id) ?? known.FirstOrDefault(a => a.RobloxUserId is null && a.Username.Equals(identity.Username, StringComparison.OrdinalIgnoreCase));
@@ -56,5 +59,7 @@ public sealed class AccountOnboardingService(IAccountRepository accounts, ISessi
         {
             SessionState = SessionState.Valid
         };
+        }
+        finally { coordinator?.Semaphore.Release(); }
     }
 }

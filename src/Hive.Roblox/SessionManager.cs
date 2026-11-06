@@ -3,10 +3,10 @@ using System.Text.Json;
 using Hive.Core;
 namespace Hive.Roblox;
 
-public sealed class SessionManager(ISessionStore sessions, IAccountRepository accounts, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null) : ISessionManager, IRobloxLaunchBroker
+public sealed class SessionManager(ISessionStore sessions, IAccountRepository accounts, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null, SessionOperationGate? coordinator = null) : ISessionManager, IRobloxLaunchBroker
 {
     private DateTimeOffset checksPausedUntil;
-    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly SemaphoreSlim gate = coordinator?.Semaphore ?? new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> renewalAttempts = [];
     private static readonly Uri RefreshUri = new("https://auth.roblox.com/v2/session/refresh");
     private static readonly Uri IdentityUri = new("https://users.roblox.com/v1/users/authenticated");

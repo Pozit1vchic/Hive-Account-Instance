@@ -16,6 +16,10 @@ public interface IVerifiedAccountStore
 {
     Task<Account> SaveAsync(RobloxIdentity identity, AccountSession session, CancellationToken ct = default);
 }
+public sealed class SessionOperationGate
+{
+    public SemaphoreSlim Semaphore { get; } = new(1, 1);
+}
 public interface ISecretProtector
 {
     byte[] Protect(byte[] data); byte[] Unprotect(byte[] data);

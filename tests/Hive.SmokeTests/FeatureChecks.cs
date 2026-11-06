@@ -39,6 +39,22 @@ internal static class FeatureChecks
         var updated = await onboarding.AddAsync(session) ?? throw new Exception("Re-onboarding failed");
         if (updated.Id != added.Id || updated.Notes != "Keep this note" || updated.DisplayName != "My alias" || (await accounts.GetAllAsync()).Count != 1)
             throw new Exception("Stable user identity failed to deduplicate");
+        var sharedGate = new SessionOperationGate();
+        var checking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var checker = new SessionManager(sessions, accounts, _ => new AsyncHandler(async (_, ct) =>
+        {
+            checking.TrySetResult(); await release.Task.WaitAsync(ct);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":1001,\"name\":\"RenamedBrowserUser\"}") };
+        }), coordinator: sharedGate);
+        var replacement = new AccountOnboardingService(accounts, sessions, _ => new Handler(_ => new(HttpStatusCode.OK) { Content = new StringContent("{\"id\":1001,\"name\":\"RenamedBrowserUser\"}") }), verifiedStore: verifiedStore, coordinator: sharedGate);
+        var checkTask = checker.CheckAsync(updated.Id, renewIfDue: false);
+        await checking.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var replaceTask = replacement.AddAsync(new([new(".ROBLOSECURITY", "new-sign-in-cookie", ".roblox.com", "/", null, true, true)], DateTimeOffset.UtcNow));
+        await Task.Delay(50);
+        if (replaceTask.IsCompleted) throw new Exception("New sign-in overwrote a session during validation");
+        release.TrySetResult(); await checkTask; await replaceTask;
+        if ((await sessions.ReadAsync(updated.Id))!.Cookies.Single(c => c.Name == ".ROBLOSECURITY").Value != "new-sign-in-cookie") throw new Exception("Stale validation overwrote the newer sign-in");
         await using (var connection = await database.OpenAsync())
         {
             using var trigger = connection.CreateCommand(); trigger.CommandText = "CREATE TRIGGER test_reject_session_insert BEFORE INSERT ON Sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END"; await trigger.ExecuteNonQueryAsync();
@@ -115,6 +131,10 @@ internal static class FeatureChecks
     private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => Task.FromResult(respond(request));
+    }
+    private sealed class AsyncHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => respond(request, ct);
     }
     private sealed class FailingProtector : ISecretProtector
     {
