@@ -49,6 +49,12 @@ internal static class BrowserFlowChecks
             throw new Exception("User:Pass confirmation did not reach browser login and encrypted persistence");
         await vm.ShutdownAsync();
         await accounts.DeleteAsync(savedAccount.Id);
+        var partial = new PartiallyBrokenBrowsers();
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), partial, preferences, NullLogger<AccountsViewModel>.Instance, onboarding, sessions);
+        await vm.AddCredentialsAsync([new("BrokenUser", "test"), new("BrowserControl", "local-test-password")]).WaitAsync(TimeSpan.FromSeconds(12));
+        if (vm.LastAddedCount != 1 || (await accounts.GetAllAsync()).Single().Username != "BrowserControl" || !vm.Status.Contains("1 sign-in page could not be loaded")) throw new Exception("One failed sign-in cancelled the rest of the batch");
+        await vm.ShutdownAsync();
+        await accounts.DeleteAsync((await accounts.GetAllAsync()).Single().Id);
         var brokenPage = new SessionFixture { FailedNavigations = 3 };
         try { await LoginPageLoader.PrepareAsync(brokenPage, new("local", "test")); throw new Exception("Broken page was accepted"); }
         catch (BrowserPageLoadException) { }
@@ -109,6 +115,11 @@ internal static class BrowserFlowChecks
             var session = new SessionFixture(); Sessions.Add(session); if (Interlocked.Increment(ref opened) == 2) TwoOpened.TrySetResult();
             return Task.FromResult<IBrowserSession>(session);
         }
+    }
+    private sealed class PartiallyBrokenBrowsers : IBrowserProvider
+    {
+        private int opened;
+        public Task<IBrowserSession> OpenAsync(BrowserProfile profile, CancellationToken cancellationToken = default) => Task.FromResult<IBrowserSession>(Interlocked.Increment(ref opened) == 1 ? new SessionFixture { FailedNavigations = 3 } : new SessionFixture { CompleteSignIn = true });
     }
     private sealed class SessionFixture : IBrowserSession
     {

@@ -848,6 +848,7 @@ public sealed class AccountsViewModel : ObservableObject
         using var batch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         loginCancellation = batch;
         var concurrency = ParallelSignIns;
+        var failed = 0;
         using var limit = new SemaphoreSlim(concurrency, concurrency);
         try
         {
@@ -855,10 +856,12 @@ public sealed class AccountsViewModel : ObservableObject
             {
                 await limit.WaitAsync(batch.Token);
                 try { await AuthenticateAsync(null, entry, batchToken: batch.Token); }
+                catch (BrowserPageLoadException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); }
+                catch (TimeoutException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); }
                 catch { await batch.CancelAsync(); throw; }
                 finally { limit.Release(); }
             }));
-            if (entries.Count > 1) Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (optionalSaveIssue ? " Some passwords or profiles could not be saved." : "");
+            if (entries.Count > 1 || failed > 0) Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (failed > 0 ? $" {failed} sign-in {(failed == 1 ? "page" : "pages")} could not be loaded." : "") + (optionalSaveIssue ? " Some passwords or profiles could not be saved." : "");
         }
         finally { loginCancellation = null; }
     });
