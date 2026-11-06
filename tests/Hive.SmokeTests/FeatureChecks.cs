@@ -42,30 +42,38 @@ internal static class FeatureChecks
         if (await rejected.AddAsync(session) != null || (await accounts.GetAllAsync()).Count != 1)
             throw new Exception("Rejected session was imported");
         var input = """
-  [{"Username":"ImportedUser","Alias":"Imported alias","Description":"Imported note","Password":"import-private-password","SecurityToken":"import-private-cookie"},
+  [{"Username":"ImportedUser","Alias":"Imported alias","Description":"Imported note","Password":"import-private-password","SecurityToken":"import-private-cookie","Group":"EXISTING"},
    {"Username":"importeduser","Description":"Duplicate"},
    {"Username":"RenamedBrowserUser","Description":"Do not overwrite"}]
   """;
         var parsed = RamImportService.Parse(input);
+        var groups = new AccountGroupRepository(database);
+        await groups.SaveAsync(new("existing-group", "Existing"));
         var importer = new RamImportService(database, new DpapiSecretProtector());
         var summary = await importer.ImportAsync(parsed);
         if (summary.Added != 1 || summary.Skipped != 1)
             throw new Exception("RAM duplicate handling failed");
         var imported = (await accounts.GetAllAsync()).Single(a => a.Username == "ImportedUser");
         var credentials = new CredentialStore(database, new DpapiSecretProtector());
-        if (imported.Notes != "Imported note" || imported.DisplayName != "Imported alias" || imported.SessionState != SessionState.Unknown || await credentials.ReadPasswordAsync(imported.Id) != "import-private-password" || (await sessions.ReadAsync(imported.Id))!.Cookies.Single().Value != "import-private-cookie")
+        if (imported.Notes != "Imported note" || imported.DisplayName != "Imported alias" || imported.GroupId != "existing-group" || imported.SessionState != SessionState.Unknown || await credentials.ReadPasswordAsync(imported.Id) != "import-private-password" || (await sessions.ReadAsync(imported.Id))!.Cookies.Single().Value != "import-private-cookie")
             throw new Exception("RAM fields or encrypted secrets lost");
+        var groupItems = RamImportService.Parse("[{\"Username\":\"GroupOne\",\"Group\":\"Friends\"},{\"Username\":\"GroupTwo\",\"Group\":\"friends\"},{\"Username\":\"DefaultUser\",\"Group\":\"Default\"}]");
+        await importer.ImportAsync(groupItems);
+        var importedGroups = await groups.GetAllAsync();
+        var friendGroup = importedGroups.Single(g => g.Name == "Friends");
+        var groupAccounts = await accounts.GetAllAsync();
+        if (groupAccounts.Single(a => a.Username == "GroupOne").GroupId != friendGroup.Id || groupAccounts.Single(a => a.Username == "GroupTwo").GroupId != friendGroup.Id || groupAccounts.Single(a => a.Username == "DefaultUser").GroupId is not null) throw new Exception("RAM groups were not preserved or default was duplicated");
         if ((await accounts.GetAllAsync()).Single(a => a.Id == added.Id).Notes != "Keep this note")
             throw new Exception("RAM import overwrote an existing account");
         var before = (await accounts.GetAllAsync()).Count;
         var failing = new RamImportService(database, new FailingProtector());
         try
         {
-            await failing.ImportAsync([new("RollbackUser", "", "", "test-password", null)]);
+            await failing.ImportAsync([new("RollbackUser", "", "", "test-password", null, "RollbackGroup")]);
             throw new Exception("Expected import storage failure");
         }
         catch (IOException) { }
-        if ((await accounts.GetAllAsync()).Count != before)
+        if ((await accounts.GetAllAsync()).Count != before || (await groups.GetAllAsync()).Any(g => g.Name == "RollbackGroup"))
             throw new Exception("RAM import did not roll back on secret protection failure");
         try
         {
@@ -75,6 +83,7 @@ internal static class FeatureChecks
         catch (FormatException) { }
         foreach (var account in await accounts.GetAllAsync())
             await accounts.DeleteAsync(account.Id);
+        foreach (var group in await groups.GetAllAsync()) await groups.DeleteAsync(group.Id);
         Console.WriteLine("PASS: browser identity discovery, stable-ID deduplication, rotated token capture, rejected login, RAM preview parsing, aliases/notes, encrypted import, skip-existing and transaction rollback.");
     }
     private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
