@@ -882,7 +882,7 @@ public sealed class AccountsViewModel : ObservableObject
         using var batch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         loginCancellation = batch;
         using var limit = new SemaphoreSlim(ParallelSignIns, ParallelSignIns);
-        var verification = 0; var failed = 0; var rateLimited = 0; var passwordFailures = 0;
+        var verification = 0; var denied = 0; var failed = 0; var rateLimited = 0; var passwordFailures = 0;
         var issues = new ConcurrentQueue<(string Username, string Reason)>();
         try
         {
@@ -900,6 +900,7 @@ public sealed class AccountsViewModel : ObservableObject
                     catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "timed out")); return; }
                     if (result.Status == DirectLoginStatus.RateLimited) { Interlocked.Exchange(ref rateLimited, 1); issues.Enqueue((entry.Username, "rate limited")); return; }
                     if (result.Status == DirectLoginStatus.VerificationRequired) { Interlocked.Increment(ref verification); issues.Enqueue((entry.Username, "manual sign-in required")); return; }
+                    if (result.Status == DirectLoginStatus.DirectRequestDenied) { Interlocked.Increment(ref denied); issues.Enqueue((entry.Username, "direct request denied; try manual sign-in")); return; }
                     if (result.Status != DirectLoginStatus.Success || result.Session is null) { Interlocked.Increment(ref failed); issues.Enqueue((entry.Username, "sign-in failed")); return; }
                     await onboardingSaveGate.WaitAsync(batch.Token);
                     try
@@ -918,7 +919,7 @@ public sealed class AccountsViewModel : ObservableObject
                 finally { limit.Release(); }
             }));
             if (LastAddedCount > 0) { SelectedGroup = null; Search = ""; FilterMode = "All"; await LoadAsync(); }
-            Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (verification > 0 ? $" {verification} require manual sign-in or verification." : "") + (failed > 0 ? $" {failed} could not be signed in." : "") + (rateLimited != 0 ? " Roblox rate-limited requests; retry later." : "") + (passwordFailures > 0 ? " Some passwords could not be saved." : "");
+            Status = $"Saved {LastAddedCount} of {entries.Count} accounts." + (verification > 0 ? $" {verification} require manual sign-in or verification." : "") + (denied > 0 ? $" {denied} direct requests were denied; try manual sign-in." : "") + (failed > 0 ? $" {failed} could not be signed in." : "") + (rateLimited != 0 ? " Roblox rate-limited requests; retry later." : "") + (passwordFailures > 0 ? " Some passwords could not be saved." : "");
             if (!HideUsernames && !issues.IsEmpty)
             {
                 var details = issues.ToArray();

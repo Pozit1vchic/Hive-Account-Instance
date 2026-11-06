@@ -24,6 +24,8 @@ internal static class DirectLoginChecks
         calls = 0;
         client = new DirectLoginClient(_ => new Handler((_, _) => { calls++; var challenge = new HttpResponseMessage(HttpStatusCode.Forbidden); challenge.Headers.Add("rblx-challenge-id", "fixture"); challenge.Headers.Add("x-csrf-token", "fixture"); return Task.FromResult(challenge); }));
         if ((await client.LoginAsync(new("fixture-user", "fixture-password"))).Status != DirectLoginStatus.VerificationRequired || calls != 1) throw new Exception("Challenge was retried instead of reported");
+        client = new DirectLoginClient(_ => new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden))));
+        if ((await client.LoginAsync(new("fixture-user", "fixture-password"))).Status != DirectLoginStatus.DirectRequestDenied) throw new Exception("Unexplained HTTP 403 was incorrectly classified as a verification challenge");
         client = new DirectLoginClient(_ => new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests))));
         if ((await client.LoginAsync(new("fixture-user", "fixture-password"))).Status != DirectLoginStatus.RateLimited) throw new Exception("Rate limit was not reported");
         client = new DirectLoginClient(_ => new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));

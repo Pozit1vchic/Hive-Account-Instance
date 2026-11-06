@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using Hive.Core;
 namespace Hive.Roblox;
 
-public enum DirectLoginStatus { Success, VerificationRequired, Rejected, RateLimited, Unavailable }
+public enum DirectLoginStatus { Success, VerificationRequired, Rejected, RateLimited, DirectRequestDenied, Unavailable }
 public sealed record DirectLoginResult(DirectLoginStatus Status, AccountSession? Session = null);
 
 public sealed class DirectLoginClient(Func<CookieContainer, HttpMessageHandler>? handlerFactory = null)
@@ -27,7 +27,7 @@ public sealed class DirectLoginClient(Func<CookieContainer, HttpMessageHandler>?
                 csrf = values.FirstOrDefault();
                 if (!string.IsNullOrEmpty(csrf)) continue;
             }
-            if (!response.IsSuccessStatusCode) return new(response.StatusCode == HttpStatusCode.Unauthorized ? DirectLoginStatus.Rejected : response.StatusCode == HttpStatusCode.Forbidden ? DirectLoginStatus.VerificationRequired : DirectLoginStatus.Unavailable);
+            if (!response.IsSuccessStatusCode) return new(response.StatusCode == HttpStatusCode.Unauthorized ? DirectLoginStatus.Rejected : response.StatusCode == HttpStatusCode.Forbidden ? DirectLoginStatus.DirectRequestDenied : DirectLoginStatus.Unavailable);
             var cookie = cookies.GetCookies(Endpoint).Cast<Cookie>().FirstOrDefault(c => c.Name == ".ROBLOSECURITY" && !string.IsNullOrWhiteSpace(c.Value));
             if (cookie is null) return new(DirectLoginStatus.VerificationRequired);
             var session = new AccountSession([new(cookie.Name, cookie.Value, cookie.Domain, cookie.Path, cookie.Expires == DateTime.MinValue ? null : new DateTimeOffset(cookie.Expires.ToUniversalTime()).ToUnixTimeSeconds(), cookie.Secure, cookie.HttpOnly)], DateTimeOffset.UtcNow);
