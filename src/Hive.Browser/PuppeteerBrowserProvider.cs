@@ -95,26 +95,41 @@ public sealed class PuppeteerBrowserProvider(string executablePath) : IBrowserPr
         public async Task FillLoginAsync(string username, string password, CancellationToken ct = default)
         {
             var page = currentPage ?? throw new InvalidOperationException("Navigate before filling sign-in.");
-            if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com") || !address.AbsolutePath.StartsWith("/login", StringComparison.Ordinal))
-                throw new InvalidOperationException("Credentials can only be filled on Roblox sign-in.");
+            EnsureLoginPage(page);
             try
             {
                 const string usernameSelector = "#login-username, input[name='username'], input[autocomplete='username'], input[placeholder*='username' i]";
                 const string passwordSelector = "#login-password, input[name='password'], input[autocomplete='current-password'], input[type='password']";
-                await page.WaitForSelectorAsync(usernameSelector, new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
-                await page.WaitForSelectorAsync(passwordSelector, new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
-                await page.TypeAsync(usernameSelector, username).WaitAsync(ct);
-                await page.TypeAsync(passwordSelector, password).WaitAsync(ct);
+                await using var userInput = await page.WaitForSelectorAsync(usernameSelector, new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
+                await using var passwordInput = await page.WaitForSelectorAsync(passwordSelector, new WaitForSelectorOptions { Timeout = 20000, Visible = true }).WaitAsync(ct);
+                if (userInput is null || passwordInput is null) throw new BrowserPageLoadException("The sign-in form did not finish loading.");
+                async Task ReplaceAsync(IElementHandle input, string value)
+                {
+                    EnsureLoginPage(page);
+                    await input.FocusAsync().WaitAsync(ct);
+                    await page.Keyboard.DownAsync("Control").WaitAsync(ct);
+                    try { await page.Keyboard.PressAsync("A").WaitAsync(ct); }
+                    finally { await page.Keyboard.UpAsync("Control"); }
+                    EnsureLoginPage(page);
+                    await input.TypeAsync(value).WaitAsync(ct);
+                    if (!await input.EvaluateFunctionAsync<bool>("(input, expected) => input.value === expected", value).WaitAsync(ct)) throw new BrowserPageLoadException("The sign-in form changed while it was being filled.");
+                }
+                await ReplaceAsync(userInput, username);
+                await ReplaceAsync(passwordInput, password);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested && ex is PuppeteerException or TimeoutException) { throw new BrowserPageLoadException("The sign-in form did not finish loading.", ex); }
+        }
+        private static void EnsureLoginPage(IPage page)
+        {
+            if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com") || (address.AbsolutePath != "/login" && address.AbsolutePath != "/login/")) throw new InvalidOperationException("Credentials can only be used on Roblox sign-in.");
         }
         public async Task SubmitLoginAsync(CancellationToken ct = default)
         {
             var page = currentPage ?? throw new InvalidOperationException("Navigate before submitting sign-in.");
-            if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var address) || address.Scheme != "https" || (address.Host != "www.roblox.com" && address.Host != "roblox.com") || !address.AbsolutePath.StartsWith("/login", StringComparison.Ordinal))
-                throw new InvalidOperationException("Sign-in can only be submitted on Roblox.");
+            EnsureLoginPage(page);
             for (var attempt = 0; attempt < 120; attempt++)
             {
+                EnsureLoginPage(page);
                 await AcceptCookieConsentAsync(ct);
                 var unobstructed = await page.EvaluateExpressionAsync<bool>(@"(() => {
                     const button = document.querySelector('#login-button') || Array.from(document.querySelectorAll('button')).find(b => /^(sign in|log in)$/i.test((b.innerText || '').trim()));

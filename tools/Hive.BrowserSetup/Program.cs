@@ -66,7 +66,7 @@ try
             await session.SubmitLoginAsync();
             if (!await managedPage.EvaluateExpressionAsync<bool>("window.hiveSubmitted === 1 && document.querySelector('#login-username').value === 'fixture-user' && document.querySelector('#login-password').value === 'fixture-password'")) throw new Exception("Sign-in form was not filled and submitted once.");
             Console.WriteLine("PASS: sign-in fields and one automatic submission on a simulated form (no real account credentials).");
-            await managedPage.SetContentAsync("<html><body><form onsubmit='event.preventDefault(); window.hiveNewSubmitted = (window.hiveNewSubmitted || 0) + 1'><input name='username' placeholder='Username, email, or phone'><input name='password' type='password'><button type='submit'>Sign in</button></form></body></html>");
+            await managedPage.SetContentAsync("<html><body><form onsubmit='event.preventDefault(); window.hiveNewSubmitted = (window.hiveNewSubmitted || 0) + 1'><input name='username' value='stale-user' placeholder='Username, email, or phone'><input name='password' type='password' value='stale-password'><button type='submit'>Sign in</button></form></body></html>");
             await session.FillLoginAsync("fixture-user", "fixture-password");
             await session.SubmitLoginAsync();
             if (!await managedPage.EvaluateExpressionAsync<bool>("window.hiveNewSubmitted === 1 && document.querySelector('[name=username]').value === 'fixture-user' && document.querySelector('[name=password]').value === 'fixture-password'")) throw new Exception("Updated sign-in form was not submitted once.");
