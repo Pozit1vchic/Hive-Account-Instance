@@ -53,6 +53,7 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
         cancellationToken.ThrowIfCancellationRequested();
         if (lifetime.IsCancellationRequested) throw new InvalidOperationException("Launch queue is closed.");
         if (tracker.GetLiveProcessId(request.AccountId).HasValue) throw new RobloxLaunchException("This account already has a linked Roblox process.");
+        if (states.TryGetValue(request.AccountId, out var existing) && existing.State == InstanceState.AwaitingProcess) throw new RobloxLaunchException("The previous launch is awaiting process identification. Cancel it before retrying.");
         var work = NewWork(request, 0); stopped.TryRemove(request.AccountId, out _); targets[request.AccountId] = request;
         State(work, InstanceState.Queued);
         if (!queue.Writer.TryWrite(work)) { Remove(work); work.Cancellation.Dispose(); State(work, InstanceState.Failed, detail: "Launch queue is full."); throw new RobloxLaunchException("Launch queue is full."); }
@@ -64,8 +65,10 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
         if (pending.TryGetValue(accountId, out var work))
         {
             try { work.Cancellation.Cancel(); } catch (ObjectDisposedException) { }
-            Remove(work); State(work, InstanceState.Exited, detail: "Launch cancelled.");
+            State(work, InstanceState.Exited, detail: "Launch cancelled.");
         }
+        else if (states.TryGetValue(accountId, out var state) && state.State == InstanceState.AwaitingProcess)
+            states.TryUpdate(accountId, state with { State = InstanceState.Exited, Detail = "Process identification cancelled." }, state);
     }
     private async Task ScheduleAsync()
     {
@@ -83,7 +86,11 @@ public sealed class InstanceManager : IInstanceManager, IAsyncDisposable, IDispo
                 if (work.Cancellation.IsCancellationRequested || !Current(work)) { Remove(work); work.Cancellation.Dispose(); continue; }
                 var spacing = fixedSpacing ?? TimeSpan.FromSeconds(Math.Clamp(policy?.LaunchDelaySeconds ?? 3, 0, 30));
                 var wait = spacing - (DateTimeOffset.UtcNow - previous);
-                if (wait > TimeSpan.Zero) await Task.Delay(wait, lifetime.Token);
+                if (wait > TimeSpan.Zero)
+                {
+                    try { await Task.Delay(wait, work.Cancellation.Token); }
+                    catch (OperationCanceledException) when (!lifetime.IsCancellationRequested) { Remove(work); work.Cancellation.Dispose(); continue; }
+                }
                 if (work.Cancellation.IsCancellationRequested) { Remove(work); work.Cancellation.Dispose(); continue; }
                 previous = DateTimeOffset.UtcNow;
                 var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

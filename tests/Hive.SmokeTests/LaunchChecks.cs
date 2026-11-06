@@ -91,6 +91,12 @@ internal static class LaunchChecks
             await Until(() => unknown.Instances.Any(i => i.State == InstanceState.AwaitingProcess));
             if (unknown.Instances.Any(i => i.State == InstanceState.Running))
                 throw new Exception("Unidentified process shown as running");
+            try { await unknown.EnqueueAsync(new("c", 123, null)); throw new Exception("Unidentified launch was repeated without confirmation"); }
+            catch (RobloxLaunchException) { }
+            unknown.Cancel("c");
+            if (unknown.Instances.Single().State != InstanceState.Exited) throw new Exception("Could not cancel an unidentified launch");
+            await unknown.EnqueueAsync(new("c", 123, null));
+            await Until(() => unknown.Instances.Single().State == InstanceState.AwaitingProcess);
         }
         var credentials = AccountInputParser.Credentials("User:pass:with:colons\nuser:duplicate\nOther: password ");
         if (credentials.Count != 2 || credentials[0].Password != "pass:with:colons" || credentials[1].Password != " password " || credentials[0].ToString().Contains("pass"))

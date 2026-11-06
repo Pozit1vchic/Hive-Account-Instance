@@ -143,6 +143,18 @@ internal static class SecurityChecks
         observed = null;
         if (tracked.GetLiveProcessId("a") != null)
             throw new Exception("Exited process still running");
+        AccountActivityTracker? racing = null;
+        var replaceDuringInspection = false;
+        var started = DateTime.UtcNow;
+        racing = new AccountActivityTracker(pid =>
+        {
+            if (pid == 123 && replaceDuringInspection) { replaceDuringInspection = false; racing!.Attach("a", 456); return null; }
+            return new ProcessSnapshot("RobloxPlayerBeta", started);
+        });
+        racing.Attach("a", 123);
+        replaceDuringInspection = true;
+        _ = racing.GetLiveProcessId("a");
+        if (racing.GetLiveProcessId("a") != 456) throw new Exception("Stale process inspection removed a newer assignment");
         var preferences = new AppPreferences { AutoCheckSessions = false, StoragePath = Path.Combine(folder, "preferences.json") };
         var vm = new AccountsViewModel(accounts, credentials, new SessionManager(sessions, accounts), tracker, new ConfiguredBrowserProvider(preferences, ""), preferences, NullLogger<AccountsViewModel>.Instance);
         await vm.LoadAsync();

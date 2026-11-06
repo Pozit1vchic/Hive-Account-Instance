@@ -40,6 +40,17 @@ internal static class AdvancedLaunchChecks
             await manager.EnqueueAsync(new("cancel",123,null)); await Until(() => immediate.Starts == 2);
         }
         var denied = new DeniedDispatcher();
+        var slowCancel = new SlowCancelDispatcher();
+        await using (var manager = new InstanceManager(slowCancel, new Tracker(), TimeSpan.Zero, policy, TimeSpan.FromMilliseconds(10)))
+        {
+            await manager.EnqueueAsync(new("slow-cancel", 123, null));
+            await slowCancel.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            manager.Cancel("slow-cancel");
+            try { await manager.EnqueueAsync(new("slow-cancel", 123, null)); throw new Exception("Started launch was repeated before cancellation finished"); }
+            catch (RobloxLaunchException) { }
+            slowCancel.Release.TrySetResult();
+            await Until(() => manager.Instances.Single().State == InstanceState.Exited);
+        }
         await using (var manager = new InstanceManager(denied,new Tracker(),TimeSpan.Zero,policy,TimeSpan.FromMilliseconds(10)))
         {
             await manager.EnqueueAsync(new("denied",123,null)); await Until(() => manager.Instances.Single().State == InstanceState.Failed); await Task.Delay(250);
@@ -102,6 +113,12 @@ internal static class AdvancedLaunchChecks
     private sealed class DeniedDispatcher : ILaunchDispatcher
     {
         public int Starts; public Task<int?> DispatchAsync(LaunchRequest request,CancellationToken ct) { Interlocked.Increment(ref Starts); throw new RobloxLaunchException("Sign in again."); }
+    }
+    private sealed class SlowCancelDispatcher : ILaunchDispatcher
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<int?> DispatchAsync(LaunchRequest request, CancellationToken ct) { Started.TrySetResult(); await Release.Task; ct.ThrowIfCancellationRequested(); return null; }
     }
     private sealed class RedirectHandler(bool external) : HttpMessageHandler
     {

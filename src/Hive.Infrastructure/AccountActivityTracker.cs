@@ -41,7 +41,7 @@ public sealed class AccountActivityTracker(Func<int, ProcessSnapshot?>? inspect 
         var process = Inspect(link.Pid);
         if (process is not null && process.Name.Equals("RobloxPlayerBeta", StringComparison.OrdinalIgnoreCase) && process.StartedUtc == link.Started)
             return link.Pid;
-        links.TryRemove(accountId, out _);
+        ((ICollection<KeyValuePair<string, (int Pid, DateTime Started)>>)links).Remove(new(accountId, link));
         return null;
     }
     public void Detach(string accountId) => links.TryRemove(accountId, out _);
