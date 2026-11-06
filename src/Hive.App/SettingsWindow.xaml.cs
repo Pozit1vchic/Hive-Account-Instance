@@ -14,6 +14,11 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         DataContext = model;
         UiMotion.Attach(this, model.EffectiveMotion);
+        Loaded += (_, _) =>
+        {
+            try { FrameRateInput.Text = new Hive.Infrastructure.RobloxFrameRateSettings().Read().ToString(System.Globalization.CultureInfo.InvariantCulture); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException) { FrameRateStatus.Text = "Roblox setting unavailable until the client creates it."; }
+        };
     }
     private void AnimatePage(object sender, SelectionChangedEventArgs e)
     {
@@ -32,4 +37,10 @@ public partial class SettingsWindow : Window
         Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
     }
     private void CloseSettings(object sender, RoutedEventArgs e) => Close();
+    private void ApplyFrameRate(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(FrameRateInput.Text, out var fps)) { FrameRateStatus.Text = "Enter -1 or a value from 30 to 240."; return; }
+        try { new Hive.Infrastructure.RobloxFrameRateSettings().Apply(fps); FrameRateStatus.Text = "Saved to Roblox settings. Verify the limit in game."; }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException or System.Xml.XmlException) { FrameRateStatus.Text = ex.Message; }
+    }
 }

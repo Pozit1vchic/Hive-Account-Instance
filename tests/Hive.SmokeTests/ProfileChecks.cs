@@ -12,6 +12,17 @@ internal static class ProfileChecks
 {
     public static async Task RunAsync(string folder)
     {
+        var frameSettingsPath = Path.Combine(folder, "roblox-frame-test.xml");
+        var originalFrameSettings = "<roblox><Item><Properties><int name=\"FramerateCap\">-1</int><int name=\"Other\">42</int></Properties></Item></roblox>";
+        await File.WriteAllTextAsync(frameSettingsPath, originalFrameSettings);
+        var frameSettings = new RobloxFrameRateSettings(frameSettingsPath, () => false);
+        if (frameSettings.Read() != -1) throw new Exception("Roblox frame rate setting could not be read");
+        var frameBackup = frameSettings.Apply(120);
+        var updatedFrameSettings = System.Xml.Linq.XDocument.Load(frameSettingsPath);
+        if (updatedFrameSettings.Descendants("int").Single(x => (string?)x.Attribute("name") == "FramerateCap").Value != "120" || updatedFrameSettings.Descendants("int").Single(x => (string?)x.Attribute("name") == "Other").Value != "42" || await File.ReadAllTextAsync(frameBackup) != originalFrameSettings) throw new Exception("Roblox frame setting or backup was not preserved");
+        try { new RobloxFrameRateSettings(frameSettingsPath, () => true).Apply(60); throw new Exception("Changed settings while Roblox was running"); } catch (InvalidOperationException) { }
+        try { frameSettings.Apply(241); throw new Exception("Accepted unsupported frame rate"); } catch (ArgumentOutOfRangeException) { }
+        if (System.Xml.Linq.XDocument.Load(frameSettingsPath).Descendants("int").Single(x => (string?)x.Attribute("name") == "FramerateCap").Value != "120") throw new Exception("Rejected frame setting changed the file");
         var ramJson = "[{\"Username\":\"LegacyUser\",\"SecurityToken\":\"fixture-cookie\"}]";
         var legacyEntropy = System.Text.Encoding.ASCII.GetBytes("ROBLOX ACCOUNT MANAGER | :) | BROUGHT TO YOU BUY ic3w0lf");
         foreach (var scope in new[] { System.Security.Cryptography.DataProtectionScope.CurrentUser, System.Security.Cryptography.DataProtectionScope.LocalMachine })
