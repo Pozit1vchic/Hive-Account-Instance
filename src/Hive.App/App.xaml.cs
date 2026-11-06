@@ -35,6 +35,7 @@ public partial class App : Application
              services.AddSingleton<IAccountGroupRepository, AccountGroupRepository>();
              services.AddSingleton<IBrowserProfileRepository, BrowserProfileRepository>();
              services.AddSingleton<ISessionStore, SessionStore>();
+             services.AddSingleton<IVerifiedAccountStore, VerifiedAccountStore>();
              services.AddSingleton<AccountOnboardingService>();
              services.AddSingleton<DirectLoginClient>();
              services.AddSingleton<RamImportService>();

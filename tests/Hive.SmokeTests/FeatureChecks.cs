@@ -12,6 +12,7 @@ internal static class FeatureChecks
     public static async Task RunAsync(HiveDatabase database, AccountRepository accounts, SessionStore sessions)
     {
         var username = "BrowserAdded";
+        var verifiedStore = new VerifiedAccountStore(database, new DpapiSecretProtector());
         var onboarding = new AccountOnboardingService(accounts, sessions, jar => new Handler(_ =>
         {
             jar.Add(new Cookie(".ROBLOSECURITY", "identified-replacement", "/", ".roblox.com") { HttpOnly = true, Secure = true });
@@ -24,7 +25,7 @@ internal static class FeatureChecks
                     displayName = "Browser account"
                 }))
             };
-        }));
+        }), verifiedStore: verifiedStore);
         var session = new AccountSession([new(".ROBLOSECURITY", "browser-session", ".roblox.com", "/", null, true, true)], DateTimeOffset.UtcNow);
         var added = await onboarding.AddAsync(session) ?? throw new Exception("Browser onboarding failed");
         if (added.RobloxUserId != 1001 || added.SessionState != SessionState.Valid || (await sessions.ReadAsync(added.Id))!.Cookies.Single().Value != "identified-replacement")
@@ -38,6 +39,20 @@ internal static class FeatureChecks
         var updated = await onboarding.AddAsync(session) ?? throw new Exception("Re-onboarding failed");
         if (updated.Id != added.Id || updated.Notes != "Keep this note" || updated.DisplayName != "My alias" || (await accounts.GetAllAsync()).Count != 1)
             throw new Exception("Stable user identity failed to deduplicate");
+        await using (var connection = await database.OpenAsync())
+        {
+            using var trigger = connection.CreateCommand(); trigger.CommandText = "CREATE TRIGGER test_reject_session_insert BEFORE INSERT ON Sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END"; await trigger.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            try { await verifiedStore.SaveAsync(new RobloxIdentity(7001, "RollbackOnboard", "Test"), session); throw new Exception("Expected onboarding transaction failure"); }
+            catch (Microsoft.Data.Sqlite.SqliteException) { }
+            if ((await accounts.GetAllAsync()).Any(a => a.Username == "RollbackOnboard")) throw new Exception("Failed onboarding left a phantom account");
+        }
+        finally
+        {
+            await using var connection = await database.OpenAsync(); using var trigger = connection.CreateCommand(); trigger.CommandText = "DROP TRIGGER test_reject_session_insert"; await trigger.ExecuteNonQueryAsync();
+        }
         var rejected = new AccountOnboardingService(accounts, sessions, _ => new Handler(_ => new(HttpStatusCode.Unauthorized)));
         if (await rejected.AddAsync(session) != null || (await accounts.GetAllAsync()).Count != 1)
             throw new Exception("Rejected session was imported");

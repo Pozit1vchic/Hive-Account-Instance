@@ -3,7 +3,7 @@ using System.Text.Json;
 using Hive.Core;
 namespace Hive.Roblox;
 
-public sealed class AccountOnboardingService(IAccountRepository accounts, ISessionStore sessions, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null)
+public sealed class AccountOnboardingService(IAccountRepository accounts, ISessionStore sessions, Func<CookieContainer, HttpMessageHandler>? handlerFactory = null, INetworkLog? networkLog = null, IVerifiedAccountStore? verifiedStore = null)
 {
     public async Task<RobloxIdentity?> IdentifyAsync(AccountSession session, CancellationToken ct = default) => (await IdentifyCoreAsync(session, ct))?.Identity;
     private async Task<(RobloxIdentity Identity, AccountSession Session)?> IdentifyCoreAsync(AccountSession session, CancellationToken ct)
@@ -26,6 +26,7 @@ public sealed class AccountOnboardingService(IAccountRepository accounts, ISessi
         response.EnsureSuccessStatusCode();
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         var identity = new RobloxIdentity(json.RootElement.GetProperty("id").GetInt64(), json.RootElement.GetProperty("name").GetString()!, json.RootElement.TryGetProperty("displayName", out var name) ? name.GetString() ?? "" : "");
+        if (identity.Id <= 0 || string.IsNullOrWhiteSpace(identity.Username) || identity.Username.Length > 64) return null;
         var updated = session.Cookies.ToList();
         foreach (Cookie cookie in jar.GetCookies(new Uri("https://users.roblox.com")))
         {
@@ -43,6 +44,7 @@ public sealed class AccountOnboardingService(IAccountRepository accounts, ISessi
         if (expectedUsername is not null && !identity.Username.Equals(expectedUsername, StringComparison.OrdinalIgnoreCase))
             return null;
         session = verified.Value.Session;
+        if (verifiedStore is not null) return await verifiedStore.SaveAsync(identity, session, ct);
         var known = await accounts.GetAllAsync(ct);
         var existing = known.FirstOrDefault(a => a.RobloxUserId == identity.Id) ?? known.FirstOrDefault(a => a.RobloxUserId is null && a.Username.Equals(identity.Username, StringComparison.OrdinalIgnoreCase));
         var account = new Account(existing?.Id ?? Guid.NewGuid().ToString("N"), identity.Username, existing?.DisplayName ?? identity.DisplayName, existing?.GroupId, existing?.Notes ?? "", SessionState.Unknown, identity.Id);

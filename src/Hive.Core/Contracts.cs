@@ -12,6 +12,10 @@ public interface ISessionStore
     Task SaveAsync(string accountId, AccountSession session, CancellationToken cancellationToken = default);
     Task<AccountSession?> ReadAsync(string accountId, CancellationToken cancellationToken = default);
 }
+public interface IVerifiedAccountStore
+{
+    Task<Account> SaveAsync(RobloxIdentity identity, AccountSession session, CancellationToken ct = default);
+}
 public interface ISecretProtector
 {
     byte[] Protect(byte[] data); byte[] Unprotect(byte[] data);
