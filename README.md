@@ -98,4 +98,6 @@ Utilities > Check Roblox presence queries the selected account’s verified Robl
 
 Preferences > Accounts can mask account names in the table. This is a presentation option; names may remain visible in other windows and through Copy. The manual presence check is separate from local Running status. See `docs/RAM-feature-map.md` for a detailed legacy feature inventory and open items.
 
+The saved-target menu can assign or clear the current place/server target for selected accounts. A saved account target takes precedence over the shared target when launching that account; imported RAM `SavedPlaceId` and `SavedJobId` fields use the same behavior. Follow-user launches use the shared user target. Account fields, including private invites, are DPAPI-encrypted.
+
 Utilities > Follow user by username resolves the Roblox username to a user ID and fills the Follow user launcher. It does not start a game until you select an account and launch.

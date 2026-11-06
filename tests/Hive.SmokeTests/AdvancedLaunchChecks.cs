@@ -71,6 +71,10 @@ internal static class AdvancedLaunchChecks
         var protocol = Uri.UnescapeDataString(LaunchProtocol.Create(request,"ticket","123456789",DateTimeOffset.UtcNow).ProtocolUri);
         if (request.PlaceId != 123 || !protocol.Contains("RequestPrivateGame") || !protocol.Contains("linkCode=private%2Bcode") || request.ToString().Contains("private+code")) throw new Exception("Private-server parsing, encoding or redaction failed");
         var follow = LaunchTarget.Parse("account",LaunchKind.FollowUser,"456", "");
+        var accountTarget = AccountLaunchTarget.Resolve("account", LaunchKind.Place, "100", "", new Dictionary<string, string> { ["SavedPlaceId"] = "123", ["SavedJobId"] = "https://www.roblox.com/games/123/test?privateServerLinkCode=fixture" });
+        if (accountTarget.Kind != LaunchKind.PrivateServer || accountTarget.PlaceId != 123 || accountTarget.LinkCode != "fixture") throw new Exception("RAM account private target was not resolved");
+        var followOverride = AccountLaunchTarget.Resolve("account", LaunchKind.FollowUser, "456", "", new Dictionary<string, string> { ["SavedPlaceId"] = "123" });
+        if (followOverride.FollowUserId != 456) throw new Exception("Account place overrides changed follow-user target");
         if (!Uri.UnescapeDataString(LaunchProtocol.Create(follow,"ticket","123456789",DateTimeOffset.UtcNow).ProtocolUri).Contains("RequestFollowUser&userId=456")) throw new Exception("Follow-user target failed");
         var share = LaunchTarget.Parse("account",LaunchKind.PrivateServer,"", "https://www.roblox.com/share?code=test&type=Server");
         try { LaunchProtocol.Create(share,"ticket","123456789",DateTimeOffset.UtcNow); throw new Exception("Unresolved share link reached protocol creation"); } catch (ArgumentException) { }

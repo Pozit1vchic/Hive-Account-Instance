@@ -63,6 +63,7 @@ public sealed class AccountsViewModel : ObservableObject
     private readonly IInstanceManager? instances;
     private readonly IAccountGroupRepository? groupRepository;
     private readonly IBrowserProfileRepository? profileRepository;
+    private readonly Hive.Storage.AccountFieldsStore? fieldsStore;
     private readonly string ProfileRoot;
     private readonly IMultiInstanceCoordinator? multiInstance;
     private readonly IAccountRepository repository; private readonly ICredentialStore credentials;
@@ -75,10 +76,11 @@ public sealed class AccountsViewModel : ObservableObject
     private string username = "", alias = "", notes = "", search = "", status = "Ready", processId = ""; private bool busy, settingsOpen;
     private Task? activeOperation;
     private CancellationTokenSource? loginCancellation;
-    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null, IBrowserProfileRepository? profileRepository = null, IMultiInstanceCoordinator? multiInstance = null, string? profileDirectory = null)
+    public AccountsViewModel(IAccountRepository repository, ICredentialStore credentials, SessionManager sessions, IAccountActivityTracker tracker, IBrowserProvider browser, AppPreferences preferences, ILogger<AccountsViewModel> logger, AccountOnboardingService? onboarding = null, ISessionStore? sessionStore = null, IInstanceManager? instances = null, IAccountGroupRepository? groupRepository = null, IBrowserProfileRepository? profileRepository = null, IMultiInstanceCoordinator? multiInstance = null, string? profileDirectory = null, Hive.Storage.AccountFieldsStore? fieldsStore = null)
     {
         ProfileRoot = System.IO.Path.GetFullPath(profileDirectory ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hive", "BrowserProfiles"));
         this.profileRepository = profileRepository;
+        this.fieldsStore = fieldsStore;
         this.multiInstance = multiInstance;
         this.groupRepository = groupRepository;
         this.instances = instances;
@@ -288,7 +290,7 @@ public sealed class AccountsViewModel : ObservableObject
             return;
         }
         LaunchRequest request;
-        try { request = BuildLaunchRequest(Selected.Id); } catch (FormatException error) { Status = error.Message; return; }
+        try { request = await BuildAccountLaunchRequestAsync(Selected.Id); } catch (FormatException error) { Status = error.Message; return; }
         await instances.EnqueueAsync(request, lifetime.Token);
         preferences.RememberPlace(request);
         SavePreferences();
@@ -447,6 +449,25 @@ public sealed class AccountsViewModel : ObservableObject
     public string LaunchTargetId { get => LaunchMode == LaunchKind.FollowUser ? preferences.FollowUserId : PlaceId; set { if (LaunchMode == LaunchKind.FollowUser) { preferences.FollowUserId = value; SavePreferences(); } else PlaceId = value; Changed(); } }
     public string LaunchArgument { get => LaunchMode == LaunchKind.PrivateServer ? preferences.PrivateInvite : JobId; set { if (LaunchMode == LaunchKind.PrivateServer) { preferences.PrivateInvite = value; SavePreferences(); } else JobId = value; Changed(); } }
     private LaunchRequest BuildLaunchRequest(string id) => LaunchTarget.Parse(id, LaunchMode, LaunchTargetId, LaunchArgument);
+    private async Task<LaunchRequest> BuildAccountLaunchRequestAsync(string id)
+    {
+        var fields = fieldsStore is null || LaunchMode == LaunchKind.FollowUser ? new Dictionary<string, string>() : await fieldsStore.ReadAsync(id, lifetime.Token);
+        return AccountLaunchTarget.Resolve(id, LaunchMode, LaunchTargetId, LaunchArgument, fields);
+    }
+    public Task SetAccountTargetAsync(IReadOnlyList<string> ids, bool clear) => RunAsync(async () =>
+    {
+        if (fieldsStore is null || ids.Count == 0) { Status = "Select accounts first."; return; }
+        if (!clear && LaunchMode == LaunchKind.FollowUser) { Status = "Select a place or server target first."; return; }
+        if (!clear) { try { _ = BuildLaunchRequest(ids[0]); } catch (FormatException error) { Status = error.Message; return; } }
+        foreach (var id in ids.Distinct())
+        {
+            var fields = await fieldsStore.ReadAsync(id, lifetime.Token);
+            if (clear) { fields.Remove("SavedPlaceId"); fields.Remove("SavedJobId"); }
+            else { fields["SavedPlaceId"] = LaunchTargetId; if (string.IsNullOrWhiteSpace(LaunchArgument)) fields.Remove("SavedJobId"); else fields["SavedJobId"] = LaunchArgument; }
+            await fieldsStore.SaveAsync(id, fields, lifetime.Token);
+        }
+        Status = clear ? "Account targets cleared." : "Target saved for selected accounts.";
+    });
     public void LoadSavedPlace(SavedPlace saved) { LaunchMode = saved.Kind; LaunchTargetId = saved.PlaceId; LaunchArgument = saved.Kind == LaunchKind.PrivateServer ? Hive.Infrastructure.ProtectedText.Read(saved.ProtectedArgument) : saved.JobId; }
     public int MaxParallelLaunches { get => preferences.MaxParallelLaunches; set { preferences.MaxParallelLaunches = Math.Clamp(value, 1, 4); SavePreferences(); Changed(); } }
     public int ParallelSignIns { get => Math.Clamp(preferences.ParallelSignIns, 1, 4); set { preferences.ParallelSignIns = Math.Clamp(value, 1, 4); SavePreferences(); Changed(); } }
@@ -698,20 +719,23 @@ public sealed class AccountsViewModel : ObservableObject
             Status = "Select accounts to launch.";
             return;
         }
-        LaunchRequest target;
-        try { target = BuildLaunchRequest(ids[0]); } catch (FormatException error) { Status = error.Message; return; }
+        LaunchRequest? target = null;
         var queued = 0;
+        var invalid = 0;
         foreach (var id in ids.Distinct())
         {
             try
             {
-                await instances.EnqueueAsync(BuildLaunchRequest(id), lifetime.Token);
+                var request = await BuildAccountLaunchRequestAsync(id);
+                await instances.EnqueueAsync(request, lifetime.Token);
+                target ??= request;
                 queued++;
             }
             catch (RobloxLaunchException) { }
+            catch (FormatException) { invalid++; }
         }
-        if (queued > 0) { preferences.RememberPlace(target); SavePreferences(); }
-        Status = queued > 0 ? $"Queued {queued} accounts." : "Selected accounts are already running or queued.";
+        if (target is not null) { preferences.RememberPlace(target); SavePreferences(); }
+        Status = queued > 0 ? $"Queued {queued} accounts." + (invalid > 0 ? $" {invalid} have invalid targets." : "") : invalid > 0 ? "Check the selected accounts' place and server targets." : "Selected accounts are already running or queued.";
         Changed(nameof(LaunchStatus));
     });
     public int TotalCount => all.Count;

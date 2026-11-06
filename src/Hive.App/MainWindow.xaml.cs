@@ -196,6 +196,8 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry("Save current place", "save", (_, _) => model.SaveCurrentPlace()));
+        menu.Items.Add(MenuEntry("Save target for selected accounts", "save", async (_, _) => await model.SetAccountTargetAsync(SelectedAccountIds(), false)));
+        menu.Items.Add(MenuEntry("Clear selected account targets", "trash", async (_, _) => await model.SetAccountTargetAsync(SelectedAccountIds(), true)));
         if (model.RecentPlaceIds.Count > 0)
         {
             var recent = new MenuItem { Header = "Recent places" };

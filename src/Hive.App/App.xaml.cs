@@ -37,6 +37,7 @@ public partial class App : Application
              services.AddSingleton<ISessionStore, SessionStore>();
              services.AddSingleton<AccountOnboardingService>();
              services.AddSingleton<RamImportService>();
+             services.AddSingleton<AccountFieldsStore>();
              services.AddSingleton<ICredentialStore, CredentialStore>();
              services.AddSingleton<INetworkLog, NetworkLog>();
              services.AddSingleton<SessionManager>();

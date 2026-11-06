@@ -81,12 +81,29 @@ internal static class ProfileChecks
         if (vm.LaunchMode != LaunchKind.Place || vm.LaunchTargetId != "5" || vm.LaunchArgument != "") throw new Exception("Recent place did not reset the launch target");
         vm.ClearRecentPlaces();
         if (AppPreferences.Load(preferencePath).RecentPlaceIds.Count != 0) throw new Exception("Recent place removal did not persist");
+        var fieldsStore = new AccountFieldsStore(database, new DpapiSecretProtector());
+        var captures = new CaptureInstances();
+        var launchVm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), browser, preferences, NullLogger<AccountsViewModel>.Instance, instances: captures, fieldsStore: fieldsStore);
+        await launchVm.LoadAsync(); launchVm.LaunchMode = LaunchKind.Place; launchVm.LaunchTargetId = "321"; launchVm.LaunchArgument = "";
+        await launchVm.SetAccountTargetAsync(["profile-account"], false);
+        launchVm.LaunchTargetId = "999"; await launchVm.LaunchAccountsAsync(["profile-account"]);
+        if (captures.Requests.Single().PlaceId != 321) throw new Exception("Per-account target was not used for launch");
+        await launchVm.SetAccountTargetAsync(["profile-account"], true);
+        await launchVm.LaunchAccountsAsync(["profile-account"]);
+        if (captures.Requests.Last().PlaceId != 999) throw new Exception("Cleared account target did not return to shared target");
+        await launchVm.ShutdownAsync();
         await accounts.DeleteAsync("profile-account"); if ((await profiles.GetAllAsync()).Count != 0) throw new Exception("Account deletion did not cascade to profile metadata"); await vm.ShutdownAsync();
         Console.WriteLine("PASS: browser-profile CRUD, metadata persistence, account session restoration, open-profile protection, cache archive/reset, path guard, cascade deletion and encrypted saved private targets.");
     }
     private sealed class Identity : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":901,\"name\":\"ProfileUser\"}") });
+    }
+    private sealed class CaptureInstances : IInstanceManager
+    {
+        public List<LaunchRequest> Requests { get; } = [];
+        public IReadOnlyList<GameInstance> Instances => [];
+        public Task EnqueueAsync(LaunchRequest request, CancellationToken ct = default) { Requests.Add(request); return Task.CompletedTask; }
     }
     private sealed class BrowserFixture : IBrowserProvider
     {
