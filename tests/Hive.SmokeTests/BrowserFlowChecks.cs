@@ -71,6 +71,22 @@ internal static class BrowserFlowChecks
         await vm.AddDirectCredentialsAsync([new("NeedVerification", "fixture-password")]);
         if (vm.Status.Contains("NeedVerification") || !vm.Status.Contains("manual sign-in")) throw new Exception("Direct sign-in ignored username masking");
         preferences.HideUsernames = false; await vm.ShutdownAsync();
+        var batchFixture = new CookieBatchFixture();
+        var batchOnboarding = new AccountOnboardingService(accounts, sessions, jar => batchFixture.CreateHandler(jar), verifiedStore: new VerifiedAccountStore(database, new DpapiSecretProtector()), coordinator: new SessionOperationGate());
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, batchOnboarding, sessions);
+        var cookieBatch = vm.AddCookiesAsync(["fixture-cookie-one", "fixture-cookie-two"]);
+        await batchFixture.TwoStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        if (batchFixture.MaxActive != 2) throw new Exception("Cookie verification did not run in parallel");
+        batchFixture.Release.TrySetResult(); await cookieBatch.WaitAsync(TimeSpan.FromSeconds(5));
+        if (vm.LastAddedCount != 2 || vm.TakeCompletedCookies().Count != 2 || (await accounts.GetAllAsync()).Count != 2) throw new Exception("Parallel cookie import did not save both accounts");
+        await vm.ShutdownAsync(); foreach (var item in await accounts.GetAllAsync()) await accounts.DeleteAsync(item.Id);
+        preferences.ParallelSignIns = 1;
+        var limitedCalls = 0;
+        var limitedOnboarding = new AccountOnboardingService(accounts, sessions, _ => new RateLimitHandler(() => Interlocked.Increment(ref limitedCalls)));
+        vm = new AccountsViewModel(accounts, credentials, manager, new AccountActivityTracker(), new MissingBrowser(), preferences, NullLogger<AccountsViewModel>.Instance, limitedOnboarding, sessions);
+        await vm.AddCookiesAsync(["first-cookie", "second-cookie"]);
+        if (limitedCalls != 1 || vm.LastAddedCount != 0 || vm.TakeCompletedCookies().Count != 0 || !vm.Status.Contains("rate limit")) throw new Exception("Cookie import ignored rate limit");
+        preferences.ParallelSignIns = 2; await vm.ShutdownAsync();
         var brokenPage = new SessionFixture { FailedNavigations = 3 };
         try { await LoginPageLoader.PrepareAsync(brokenPage, new("local", "test")); throw new Exception("Broken page was accepted"); }
         catch (BrowserPageLoadException) { }
@@ -128,6 +144,33 @@ internal static class BrowserFlowChecks
             jar.Add(new Cookie(".ROBLOSECURITY", "fixture-direct-cookie", "/", ".roblox.com") { Secure = true, HttpOnly = true });
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
+    }
+    private sealed class CookieBatchFixture
+    {
+        private int active;
+        public int MaxActive;
+        public TaskCompletionSource TwoStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public HttpMessageHandler CreateHandler(CookieContainer jar) => new CookieHandler(this, jar);
+        private sealed class CookieHandler(CookieBatchFixture owner, CookieContainer jar) : HttpMessageHandler
+        {
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            {
+                var n = Interlocked.Increment(ref owner.active); if (n == 2) { owner.MaxActive = n; owner.TwoStarted.TrySetResult(); }
+                try
+                {
+                    await owner.Release.Task.WaitAsync(ct);
+                    var value = jar.GetCookies(new Uri("https://users.roblox.com"))[".ROBLOSECURITY"]!.Value;
+                    var first = value.EndsWith("one", StringComparison.Ordinal);
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(first ? "{\"id\":801,\"name\":\"CookieOne\"}" : "{\"id\":802,\"name\":\"CookieTwo\"}") };
+                }
+                finally { Interlocked.Decrement(ref owner.active); }
+            }
+        }
+    }
+    private sealed class RateLimitHandler(Action called) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) { called(); return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)); }
     }
     private sealed class MissingBrowser : IBrowserProvider
     {

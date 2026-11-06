@@ -307,6 +307,13 @@ public partial class MainWindow : Window
                 if (!complete) dialog.RemoveCompletedCredentials(model.LastDirectCompleted);
                 return complete && dialog.Credentials.Count > 0;
             }
+            if (mode == "Cookies")
+            {
+                var completed = model.TakeCompletedCookies();
+                var complete = completed.Count == dialog.Cookies.Count;
+                if (!complete) dialog.RemoveCompletedCookies(completed);
+                return complete && dialog.Cookies.Count > 0;
+            }
             return model.LastAddedCount > 0;
         };
         dialog.CancelOperation = () => model.CancelLoginCommand.Execute(null);

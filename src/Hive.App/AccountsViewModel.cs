@@ -965,43 +965,51 @@ public sealed class AccountsViewModel : ObservableObject
         }
         finally { loginCancellation = null; }
     });
+    private ConcurrentBag<string> completedCookies = [];
+    public IReadOnlyList<string> TakeCompletedCookies() => Interlocked.Exchange(ref completedCookies, []).ToArray();
     public Task AddCookiesAsync(IReadOnlyList<string> tokens) => RunAsync(async () =>
     {
         if (onboarding is null)
             return;
-        loginCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        completedCookies = [];
+        using var batch = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        loginCancellation = batch;
+        using var limit = new SemaphoreSlim(ParallelSignIns, ParallelSignIns);
         var processed = 0;
         var rejected = 0;
-        var paused = false;
+        var paused = 0;
         try
         {
-            foreach (var token in tokens)
+            Status = "Verifying sessions...";
+            await Task.WhenAll(tokens.Select(async token =>
             {
-                loginCancellation.Token.ThrowIfCancellationRequested();
+                await limit.WaitAsync(batch.Token);
                 try
                 {
-                    var added = await onboarding.AddAsync(new([new(".ROBLOSECURITY", token, ".roblox.com", "/", null, true, true)], DateTimeOffset.UtcNow), loginCancellation.Token);
+                    batch.Token.ThrowIfCancellationRequested();
+                    if (Volatile.Read(ref paused) != 0) return;
+                    var added = await onboarding.AddAsync(new([new(".ROBLOSECURITY", token, ".roblox.com", "/", null, true, true)], DateTimeOffset.UtcNow), batch.Token);
                     if (added is null)
-                        rejected++;
+                        Interlocked.Increment(ref rejected);
                     else
                     {
-                        processed++;
-                        LastAddedCount = processed;
+                        Interlocked.Increment(ref processed);
+                        completedCookies.Add(token);
                     }
                 }
-                catch (System.Net.Http.HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests) { paused = true; break; }
-                catch (System.Net.Http.HttpRequestException) { rejected++; }
-                catch (System.Net.CookieException) { rejected++; }
-                await Task.Delay(500, loginCancellation.Token);
-            }
-            LastAddedCount = processed;
+                catch (System.Net.Http.HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests) { Interlocked.Exchange(ref paused, 1); }
+                catch (System.Net.Http.HttpRequestException) { Interlocked.Increment(ref rejected); }
+                catch (System.Net.CookieException) { Interlocked.Increment(ref rejected); }
+                catch (TaskCanceledException) when (!batch.IsCancellationRequested) { Interlocked.Increment(ref rejected); }
+                finally { limit.Release(); }
+            }));
             SelectedGroup = null;
             Search = "";
             FilterMode = "All";
             await LoadAsync();
-            Status = paused ? $"Saved {processed} accounts. Roblox rate limit reached; retry the remaining cookies later." : rejected == 0 ? $"Saved {processed} accounts." : $"Saved {processed}; {rejected} cookies were not verified.";
+            Status = paused != 0 ? $"Saved {processed} accounts. Roblox rate limit reached; retry the remaining cookies later." : rejected == 0 ? $"Saved {processed} accounts." : $"Saved {processed}; {rejected} cookies were not verified.";
         }
-        finally { loginCancellation.Dispose(); loginCancellation = null; }
+        finally { LastAddedCount = processed; loginCancellation = null; }
     });
     public Task AddCustomAsync(Uri url, string script) => RunAsync(() => AuthenticateAsync(null, startUrl: url, script: script));
     private Task SignInAsync() => AuthenticateAsync(Selected);

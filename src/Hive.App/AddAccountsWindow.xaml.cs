@@ -114,6 +114,18 @@ public partial class AddAccountsWindow : Window
         });
         BulkInput.Text = string.Join("\n", lines);
     }
+    public void RemoveCompletedCookies(IReadOnlyCollection<string> cookies)
+    {
+        if (cookies.Count == 0) return;
+        var completed = cookies.ToHashSet(StringComparer.Ordinal);
+        var remaining = CookiesInput.Text.Split('\n').Where(line =>
+        {
+            var value = line.Trim();
+            if (value.StartsWith(".ROBLOSECURITY=", StringComparison.Ordinal)) value = value[".ROBLOSECURITY=".Length..].TrimEnd(';');
+            return !completed.Contains(value);
+        });
+        CookiesInput.Text = string.Join("\n", remaining);
+    }
     private void CloseDialog(object sender, RoutedEventArgs e)
     {
         if (submitting)

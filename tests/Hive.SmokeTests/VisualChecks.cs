@@ -111,6 +111,11 @@ internal static class VisualChecks
         retry.SubmitAsync = () => { submitted++; return completion.Task; };
         retry.Show();
         ((TextBox)retry.FindName("CookiesInput")).Text = "test-local-cookie";
+        var cookiesInput = (TextBox)retry.FindName("CookiesInput");
+        cookiesInput.Text = ".ROBLOSECURITY=first-token;\nsecond-token";
+        retry.RemoveCompletedCookies(["first-token"]);
+        if (cookiesInput.Text != "second-token") throw new Exception("Completed cookies remained in the retry list");
+        cookiesInput.Text = "test-local-cookie";
         var continueButton = (Button)retry.FindName("ContinueButton");
         continueButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (submitted != 1 || continueButton.IsEnabled || !retry.IsVisible)
