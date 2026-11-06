@@ -42,7 +42,7 @@ internal static class FeatureChecks
         if (await rejected.AddAsync(session) != null || (await accounts.GetAllAsync()).Count != 1)
             throw new Exception("Rejected session was imported");
         var input = """
-  [{"Username":"ImportedUser","Alias":"Imported alias","Description":"Imported note","Password":"import-private-password","SecurityToken":"import-private-cookie","Group":"EXISTING"},
+  [{"Username":"ImportedUser","Alias":"Imported alias","Description":"Imported note","Password":"import-private-password","SecurityToken":"import-private-cookie","Group":"EXISTING","Fields":{"Custom":"private-field-value"}},
    {"Username":"importeduser","Description":"Duplicate"},
    {"Username":"RenamedBrowserUser","Description":"Do not overwrite"}]
   """;
@@ -54,6 +54,16 @@ internal static class FeatureChecks
         if (summary.Added != 1 || summary.Skipped != 1)
             throw new Exception("RAM duplicate handling failed");
         var imported = (await accounts.GetAllAsync()).Single(a => a.Username == "ImportedUser");
+        var fieldsStore = new AccountFieldsStore(database, new DpapiSecretProtector());
+        if ((await fieldsStore.ReadAsync(imported.Id))["Custom"] != "private-field-value") throw new Exception("RAM custom fields lost");
+        await fieldsStore.SaveAsync(imported.Id, new Dictionary<string, string> { ["Edited"] = "private-edited-value" });
+        if ((await fieldsStore.ReadAsync(imported.Id))["Edited"] != "private-edited-value") throw new Exception("Custom fields did not persist");
+        await using (var conn = await database.OpenAsync())
+        {
+            using var command = conn.CreateCommand(); command.CommandText = "SELECT Payload FROM AccountFields WHERE AccountId=$id"; command.Parameters.AddWithValue("$id", imported.Id);
+            var payload = (byte[])(await command.ExecuteScalarAsync())!;
+            if (System.Text.Encoding.UTF8.GetString(payload).Contains("private-edited-value")) throw new Exception("Custom field stored in plaintext");
+        }
         var credentials = new CredentialStore(database, new DpapiSecretProtector());
         if (imported.Notes != "Imported note" || imported.DisplayName != "Imported alias" || imported.GroupId != "existing-group" || imported.SessionState != SessionState.Unknown || await credentials.ReadPasswordAsync(imported.Id) != "import-private-password" || (await sessions.ReadAsync(imported.Id))!.Cookies.Single().Value != "import-private-cookie")
             throw new Exception("RAM fields or encrypted secrets lost");
@@ -83,6 +93,7 @@ internal static class FeatureChecks
         catch (FormatException) { }
         foreach (var account in await accounts.GetAllAsync())
             await accounts.DeleteAsync(account.Id);
+        if ((await fieldsStore.ReadAsync(imported.Id)).Count != 0) throw new Exception("Custom fields did not cascade on account deletion");
         foreach (var group in await groups.GetAllAsync()) await groups.DeleteAsync(group.Id);
         Console.WriteLine("PASS: browser identity discovery, stable-ID deduplication, rotated token capture, rejected login, RAM preview parsing, aliases/notes, encrypted import, skip-existing and transaction rollback.");
     }

@@ -4,7 +4,7 @@ using System.Text.Json;
 using Hive.Core;
 namespace Hive.Storage;
 
-public sealed record RamImportItem(string Username, string Alias, string Description, string? Password, string? Cookie, string? Group = null);
+public sealed record RamImportItem(string Username, string Alias, string Description, string? Password, string? Cookie, string? Group = null, IReadOnlyDictionary<string, string>? Fields = null);
 public sealed record RamImportSummary(int Added, int Skipped);
 public sealed class RamImportService(HiveDatabase database, ISecretProtector protector)
 {
@@ -32,7 +32,16 @@ public sealed class RamImportService(HiveDatabase database, ISecretProtector pro
             var group = Read("Group").Trim();
             if (alias.Length > 128 || description.Length > 5000 || password.Length > 5000 || cookie.Length > 16384 || group.Length > 64)
                 throw new FormatException("An imported field exceeds the supported length.");
-            result.Add(new(username, alias, description, password.Length == 0 ? null : password, cookie.Length == 0 ? null : cookie, group.Length == 0 || group.Equals("Default", StringComparison.OrdinalIgnoreCase) ? null : group));
+            var fields = new Dictionary<string, string>();
+            if (row.TryGetProperty("Fields", out var fieldObject) && fieldObject.ValueKind is not JsonValueKind.Null)
+            {
+                if (fieldObject.ValueKind != JsonValueKind.Object) throw new FormatException("Account fields must be an object.");
+                foreach (var field in fieldObject.EnumerateObject())
+                {
+                    if (fields.Count >= 100 || string.IsNullOrWhiteSpace(field.Name) || field.Name.Length > 128 || field.Value.ValueKind != JsonValueKind.String || (field.Value.GetString()?.Length ?? 0) > 5000 || !fields.TryAdd(field.Name, field.Value.GetString() ?? "")) throw new FormatException("Invalid or excessive account fields.");
+                }
+            }
+            result.Add(new(username, alias, description, password.Length == 0 ? null : password, cookie.Length == 0 ? null : cookie, group.Length == 0 || group.Equals("Default", StringComparison.OrdinalIgnoreCase) ? null : group, fields));
         }
         return result;
     }
@@ -80,6 +89,11 @@ public sealed class RamImportService(HiveDatabase database, ISecretProtector pro
                 item.Alias,
                 item.Description
             }, transaction: transaction, cancellationToken: ct));
+            if (item.Fields is { Count: > 0 })
+            {
+                var payload = Encrypt(JsonSerializer.SerializeToUtf8Bytes(item.Fields));
+                await connection.ExecuteAsync(new CommandDefinition("INSERT INTO AccountFields(AccountId,Payload) VALUES(@id,@payload)", new { id, payload }, transaction: transaction, cancellationToken: ct));
+            }
             if (item.Password is not null)
             {
                 var payload = Encrypt(Encoding.UTF8.GetBytes(item.Password));

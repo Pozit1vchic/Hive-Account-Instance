@@ -308,6 +308,11 @@ public partial class MainWindow : Window
         var dialog = new AccountDetailsWindow(model) { Owner = this };
         dialog.ShowDialog();
     }
+    private void EditAccountFields(object sender, RoutedEventArgs e)
+    {
+        if (model.Selected is null || database is null) return;
+        new AccountFieldsWindow(new AccountFieldsStore(database, new Hive.Infrastructure.DpapiSecretProtector()), model.Selected.Id) { Owner = this }.ShowDialog();
+    }
     private void OpenSettings(object sender, RoutedEventArgs e)
     {
         var settings = new SettingsWindow(model) { Owner = this };

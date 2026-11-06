@@ -57,6 +57,8 @@ public sealed class HiveDatabase(string path)
    ALTER TABLE BrowserProfiles ADD COLUMN LastUsedAt TEXT NULL;
    INSERT INTO SchemaMigrations(Version) VALUES(4);
    """, transaction: transaction, cancellationToken: ct));
+        if (version < 5)
+            await connection.ExecuteAsync(new CommandDefinition("CREATE TABLE AccountFields (AccountId TEXT PRIMARY KEY REFERENCES Accounts(Id) ON DELETE CASCADE, Payload BLOB NOT NULL); INSERT INTO SchemaMigrations(Version) VALUES(5);", transaction: transaction, cancellationToken: ct));
         await transaction.CommitAsync(ct);
     }
 }
