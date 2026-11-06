@@ -259,7 +259,7 @@ public sealed class AccountsViewModel : ObservableObject
             placeId = value;
             preferences.PlaceId = value;
             Changed();
-            SavePreferences();
+            ScheduleTargetPreferencesSave();
         }
     }
     public string JobId
@@ -271,7 +271,7 @@ public sealed class AccountsViewModel : ObservableObject
             jobId = value;
             preferences.JobId = value;
             Changed();
-            SavePreferences();
+            ScheduleTargetPreferencesSave();
         }
     }
     public string LaunchStatus
@@ -448,8 +448,8 @@ public sealed class AccountsViewModel : ObservableObject
     public string TargetLabel => LaunchMode == LaunchKind.FollowUser ? "User ID" : "Place ID";
     public string ArgumentLabel => LaunchMode == LaunchKind.PrivateServer ? "Invite URL / access code" : "Job ID (optional)";
     public bool HasLaunchArgument => LaunchMode != LaunchKind.FollowUser;
-    public string LaunchTargetId { get => LaunchMode == LaunchKind.FollowUser ? preferences.FollowUserId : PlaceId; set { if (LaunchMode == LaunchKind.FollowUser) { preferences.FollowUserId = value; SavePreferences(); } else PlaceId = value; Changed(); } }
-    public string LaunchArgument { get => LaunchMode == LaunchKind.PrivateServer ? preferences.PrivateInvite : JobId; set { if (LaunchMode == LaunchKind.PrivateServer) { preferences.PrivateInvite = value; SavePreferences(); } else JobId = value; Changed(); } }
+    public string LaunchTargetId { get => LaunchMode == LaunchKind.FollowUser ? preferences.FollowUserId : PlaceId; set { if (LaunchMode == LaunchKind.FollowUser) { if (preferences.FollowUserId == value) return; preferences.FollowUserId = value; ScheduleTargetPreferencesSave(); } else PlaceId = value; Changed(); } }
+    public string LaunchArgument { get => LaunchMode == LaunchKind.PrivateServer ? preferences.PrivateInvite : JobId; set { if (LaunchMode == LaunchKind.PrivateServer) { if (preferences.PrivateInvite == value) return; preferences.PrivateInvite = value; ScheduleTargetPreferencesSave(); } else JobId = value; Changed(); } }
     private LaunchRequest BuildLaunchRequest(string id) => LaunchTarget.Parse(id, LaunchMode, LaunchTargetId, LaunchArgument);
     private async Task<LaunchRequest> BuildAccountLaunchRequestAsync(string id, LaunchKind? selectedMode = null, string? selectedTarget = null, string? selectedArgument = null)
     {
@@ -555,9 +555,23 @@ public sealed class AccountsViewModel : ObservableObject
         }
     }
     private string preferencesStatus = "Saved on this device";
+    private System.Windows.Threading.DispatcherTimer? targetSaveTimer;
     public string PreferencesStatus => preferencesStatus;
+    private void ScheduleTargetPreferencesSave()
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || !dispatcher.CheckAccess()) { SavePreferences(); return; }
+        if (targetSaveTimer is null)
+        {
+            targetSaveTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, dispatcher) { Interval = TimeSpan.FromMilliseconds(400) };
+            targetSaveTimer.Tick += (_, _) => SavePreferences();
+        }
+        targetSaveTimer.Stop(); targetSaveTimer.Start();
+        preferencesStatus = "Saving..."; Changed(nameof(PreferencesStatus));
+    }
     private void SavePreferences()
     {
+        targetSaveTimer?.Stop();
         try
         {
             preferences.Save();
@@ -1219,6 +1233,7 @@ public sealed class AccountsViewModel : ObservableObject
     }
     public async Task ShutdownAsync()
     {
+        if (targetSaveTimer?.IsEnabled == true) SavePreferences();
         CancelPending();
         if (activeOperation is not null)
         {

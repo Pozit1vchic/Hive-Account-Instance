@@ -33,6 +33,14 @@ internal static class VisualChecks
         PresentationTraceSources.DataBindingSource.Listeners.Add(listener);
         var window = new MainWindow(vm) { Width = 1100, Height = 700 };
         window.Show();
+        vm.PlaceId = "111"; vm.PlaceId = "222"; vm.JobId = "test-job";
+        if (vm.PreferencesStatus != "Saving...") throw new Exception("Target edits were not coalesced");
+        var frame = new DispatcherFrame();
+        var idleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+        idleTimer.Tick += (_, _) => { idleTimer.Stop(); frame.Continue = false; };
+        idleTimer.Start(); Dispatcher.PushFrame(frame);
+        var targetPreferences = AppPreferences.Load(Path.Combine(folder, "preview-preferences.json"));
+        if (targetPreferences.PlaceId != "222" || targetPreferences.JobId != "test-job" || vm.PreferencesStatus != "Saved on this device") throw new Exception("Coalesced target edits did not persist");
         var accountsTable = (DataGrid)window.FindName("AccountsTable");
         var accountMenu = accountsTable.ContextMenu;
         accountMenu.PlacementTarget = accountsTable;
@@ -177,8 +185,10 @@ internal static class VisualChecks
         PresentationTraceSources.DataBindingSource.Listeners.Remove(listener);
         if (bindings.ToString().Length > 0)
             throw new Exception("WPF binding errors: " + bindings.ToString());
+        vm.PlaceId = "333";
         window.Close();
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        if (AppPreferences.Load(Path.Combine(folder, "preview-preferences.json")).PlaceId != "333") throw new Exception("Pending target edit was lost on close");
         app.Shutdown();
         Console.WriteLine("PASS: running/sign-in filters, stable selection, all settings tabs, light/dusk themes, minimum-size layout, SVG rendering, import preview, no WPF binding errors.");
     }
