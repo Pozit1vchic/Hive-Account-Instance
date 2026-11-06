@@ -196,6 +196,7 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry("Save current place", "save", (_, _) => model.SaveCurrentPlace()));
+        menu.Items.Add(MenuEntry("Browse public servers", "search", (_, _) => BrowsePublicServers()));
         menu.Items.Add(MenuEntry("Save target for selected accounts", "save", async (_, _) => await model.SetAccountTargetAsync(SelectedAccountIds(), false)));
         menu.Items.Add(MenuEntry("Clear selected account targets", "trash", async (_, _) => await model.SetAccountTargetAsync(SelectedAccountIds(), true)));
         if (model.RecentPlaceIds.Count > 0)
@@ -220,6 +221,18 @@ public partial class MainWindow : Window
             menu.Items.Add(remove);
         }
         OpenMenu(menu, (FrameworkElement)sender);
+    }
+    private void BrowsePublicServers()
+    {
+        if (!long.TryParse(model.PlaceId, out var placeId) || placeId <= 0) { model.Status = "Enter a valid Place ID before browsing servers."; return; }
+        var browser = new PublicServersWindow(placeId, networkLog) { Owner = this };
+        if (browser.ShowDialog() == true && browser.SelectedServer is { } server)
+        {
+            model.LaunchMode = Hive.Core.LaunchKind.Server;
+            model.LaunchTargetId = placeId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            model.LaunchArgument = server.Id;
+            model.Status = "Server selected. Account-specific targets still take precedence.";
+        }
     }
     private async void CreateGroup(object? sender, RoutedEventArgs e)
     {

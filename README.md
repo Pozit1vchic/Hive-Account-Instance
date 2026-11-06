@@ -100,4 +100,6 @@ Preferences > Accounts can mask account names in the table. This is a presentati
 
 The saved-target menu can assign or clear the current place/server target for selected accounts. A saved account target takes precedence over the shared target when launching that account; imported RAM `SavedPlaceId` and `SavedJobId` fields use the same behavior. Follow-user launches use the shared user target. Account fields, including private invites, are DPAPI-encrypted.
 
+Enter a Place ID and open the saved-target menu to browse public servers. The list loads one page at a time and selecting a server fills the shared Job ID; account-specific targets retain priority. Availability can change before joining, and Roblox may rate-limit the list.
+
 Utilities > Follow user by username resolves the Roblox username to a user ID and fills the Follow user launcher. It does not start a game until you select an account and launch.
